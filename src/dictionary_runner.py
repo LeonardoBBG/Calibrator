@@ -22,7 +22,6 @@ def build_ws_tagging_summary(ws_tagging: Dict) -> Dict:
     summary = {
         "theme_presence_by_id": {},
         "recommended_action_by_id": {},
-        "theme_priority_by_id": {},
         "cross_reference_theme_ids_by_id": {},
         "risk_or_rationale_by_id": {}
     }
@@ -34,7 +33,6 @@ def build_ws_tagging_summary(ws_tagging: Dict) -> Dict:
 
         summary["theme_presence_by_id"][theme_id] = mapping.get("theme_presence")
         summary["recommended_action_by_id"][theme_id] = mapping.get("recommended_action")
-        summary["theme_priority_by_id"][theme_id] = mapping.get("theme_priority")
         summary["cross_reference_theme_ids_by_id"][theme_id] = mapping.get("cross_reference_theme_ids", [])
 
         notes = []

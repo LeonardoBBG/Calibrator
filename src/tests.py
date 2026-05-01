@@ -255,7 +255,7 @@ def test_ws_tagging_summary():
     summary = build_ws_tagging_summary(ws_tagging)
     assert summary["theme_presence_by_id"]["T01_ROLE_EVOLUTION"] == "PRESENT"
     assert summary["recommended_action_by_id"]["T01_ROLE_EVOLUTION"] == "REINFORCE"
-    assert summary["theme_priority_by_id"]["T01_ROLE_EVOLUTION"] == 3
+    assert "theme_priority_by_id" not in summary
     assert summary["cross_reference_theme_ids_by_id"]["T01_ROLE_EVOLUTION"] == ["T02_MANAGEMENT_DIRECTION"]
     assert "duplication_risk" in summary["risk_or_rationale_by_id"]["T01_ROLE_EVOLUTION"]
     print("WS tagging summary test passed")

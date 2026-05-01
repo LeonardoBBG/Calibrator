@@ -70,8 +70,15 @@ For each signal:
     - theme_presence_by_id gives the WS baseline status.
     - recommended_action_by_id gives the WS baseline action.
     - risk_or_rationale_by_id gives any duplication, risk, or rationale note.
+    - WS_TAGGING_SUMMARY_JSON does not control theme_priority. Always read theme_priority from WS_THEME_DICTIONARY_JSON only.
 
 Use this baseline when deciding ws_presence and recommended_action. Do not map a judgment signal into a theme that is ABSENT in the WS unless the correct action is DO_NOT_USE or REVIEW_MANUALLY, or unless quality_control.notes explains why human review is required.
+
+Baseline coupling rules:
+- If baseline theme_presence is PRESENT, the signal may use ws_presence=PRESENT if there is a real analogical bridge.
+- If baseline theme_presence is LATENT, set ws_presence=PARTIAL by default and recommended_action=REVIEW_MANUALLY by default. Do not use REINFORCE for a LATENT baseline unless relevance_to_ws explains why reinforcement is safer than review.
+- If baseline theme_presence is ABSENT, set ws_presence=ABSENT by default. Do not set ws_presence=PRESENT. recommended_action must be DO_NOT_USE or REVIEW_MANUALLY unless quality_control.notes explains a specific WS_TEXT contradiction in the baseline.
+- If baseline theme_presence is RISK_ONLY, treat the signal as a quarantine candidate. recommended_action must be DO_NOT_USE or REVIEW_MANUALLY. Use case_effect=NON_TRANSFERABLE where the judgment signal is fact-specific or would invite speculation.
 
 ================================================================
 STEP 4 — POPULATE THEME_PRIORITY
@@ -84,6 +91,7 @@ Do NOT derive theme_priority from:
 - the numeric portion of theme_id (e.g. "T14"),
 - the order of themes in the dictionary array,
 - any internal reasoning about how important the theme feels.
+- WS_TAGGING_SUMMARY_JSON or any WS tagging output.
 
 If the dictionary entry's `theme_priority` field is missing or non-integer, set theme_priority to null and add a note in quality_control.notes.
 
@@ -111,11 +119,12 @@ STEP 6 — SELECT recommended_action
 
 6.3 Apply the case_effect / action coupling rule:
     - If case_effect is WIN_DRIVER and ws_presence is PRESENT: REINFORCE is the default.
-    - If case_effect is WIN_DRIVER and ws_presence is PARTIAL or LATENT: REVIEW_MANUALLY is the default; ADD EVIDENCE ANCHOR is permitted only if the dictionary entry allows it.
+    - If case_effect is WIN_DRIVER and ws_presence is PARTIAL: REVIEW_MANUALLY is the default; ADD EVIDENCE ANCHOR is permitted only if the dictionary entry allows it.
     - If case_effect is POLKEY_RISK or CONTRIBUTION_RISK: REVIEW_MANUALLY is the default. REINFORCE is not permitted because remedy-stage findings should not be inserted into the WS factual narrative without independent legal review.
     - If case_effect is NON_TRANSFERABLE: DO_NOT_USE is the default.
     - If case_effect is NEUTRAL_CONTEXT: REVIEW_MANUALLY is the default.
     - If case_effect is LOSS_DRIVER: SOFTEN or REVIEW_MANUALLY is the default, depending on whether the dictionary entry permits SOFTEN.
+    - If WS_TAGGING_SUMMARY_JSON says the theme is LATENT, ABSENT, or RISK_ONLY, the baseline coupling rules in step 3.7 override any more permissive default in this step.
 
 6.4 If you depart from the default, state the reason in the signal's `relevance_to_ws` field.
 
@@ -138,6 +147,8 @@ Map WS_TAGGING_SUMMARY_JSON theme_presence values to ws_presence as follows:
 - RISK_ONLY -> UNCLEAR unless the signal is clearly non-transferable, in which case use ABSENT and DO_NOT_USE.
 
 This mapping is the default. Depart only if WS_TEXT clearly contradicts the baseline, and record why.
+
+Never set ws_presence=PRESENT when WS_TAGGING_SUMMARY_JSON marks the mapped_theme_id as ABSENT. If the judgment appears useful but the WS baseline is ABSENT, use ws_presence=ABSENT or UNCLEAR and recommended_action=REVIEW_MANUALLY.
 
 dictionary_match_confidence (one of):
 - HIGH — the signal cleanly fits the chosen theme's `include_when` and no `exclude_when` applies.
@@ -242,9 +253,12 @@ Before returning the JSON, internally verify:
 9. cross_reference_theme_ids respect the primary theme's duplication_guardrail.
 10. case_effect / recommended_action coupling rules from step 6.3 are satisfied or a reason is recorded.
 11. ws_presence is consistent with WS_TAGGING_SUMMARY_JSON unless a reason is recorded.
-12. Signals are ordered as specified in step 10.
-13. Top-level keys are exactly as specified in step 11.
-14. quality_control flags reflect actually-performed checks.
+12. No signal with a LATENT baseline uses REINFORCE unless relevance_to_ws explains why REVIEW_MANUALLY is not the safer default.
+13. No signal with an ABSENT baseline uses ws_presence=PRESENT.
+14. No signal with a RISK_ONLY baseline uses REINFORCE.
+15. Signals are ordered as specified in step 10.
+16. Top-level keys are exactly as specified in step 11.
+17. quality_control flags reflect actually-performed checks.
 
 If any check fails, fix the underlying signal or record the failure in quality_control.notes before returning.
 
