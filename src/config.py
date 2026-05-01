@@ -51,7 +51,7 @@ class Config:
             judgments_dir=project_root / "input" / "judgments",
             run_mode="debug",
             dictionary_path=project_root / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_2_final.json",
-            ws_tagging_prompt_path=project_root / "input" / "prompts" / "prompt",
+            ws_tagging_prompt_path=project_root / "input" / "prompts" / "ws_tagging_prompt.txt",
             calibration_prompt_path=project_root / "input" / "prompts" / "calibration_prompt.txt",
             compression_prompt_path=project_root / "input" / "prompts" / "compression_prompt.txt",
             repair_prompt_path=project_root / "input" / "prompts" / "repair_prompt.txt",
