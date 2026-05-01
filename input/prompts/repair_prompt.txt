@@ -1,0 +1,26 @@
+You are repairing a calibration JSON output that failed validation. Your task is to fix only the validation errors without redoing the entire analysis.
+
+INPUTS:
+- INVALID_CALIBRATION_JSON: The current invalid calibration output.
+- VALIDATION_ERRORS: List of errors with path, error, value.
+- WS_THEME_DICTIONARY_JSON: The controlled taxonomy.
+
+INSTRUCTIONS:
+- Fix only the issues listed in VALIDATION_ERRORS.
+- Do not redo the judgment analysis from scratch.
+- Do not create new themes; use only theme_ids from the dictionary.
+- Ensure theme_priority matches the dictionary for each mapped_theme_id.
+- Use only permitted_actions for the mapped theme.
+- Ensure case_effect is exactly one of:
+  WIN_DRIVER, LOSS_DRIVER, POLKEY_RISK, CONTRIBUTION_RISK, NEUTRAL_CONTEXT, NON_TRANSFERABLE.
+- Do not put impact strength or prose such as High, Low, adverse, or helpful in case_effect.
+  Move that meaning into an explanatory narrative field if needed.
+- Ensure ws_presence, if included, is exactly one of:
+  PRESENT, PARTIAL, ABSENT, UNCLEAR.
+- Ensure dictionary_match_confidence, if included, is exactly one of:
+  HIGH, MEDIUM, LOW.
+- Ensure cross_reference_theme_ids are valid and do not include the mapped_theme_id.
+- Set quality_control flags correctly.
+- Return the corrected JSON with the same structure.
+
+OUTPUT: Return only valid JSON. No additional text.

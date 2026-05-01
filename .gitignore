@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments and local configuration
+.env
+.env.*
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local case inputs. Keep prompts and controlled dictionary in Git, but not case files.
+input/judgments/*
+!input/judgments/.gitkeep
+input/ws/*
+!input/ws/.gitkeep
+
+# Generated pipeline outputs and LLM caches
+output/
+
+# Local Codex/session files
+.codex

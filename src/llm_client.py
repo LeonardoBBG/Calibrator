@@ -1,0 +1,181 @@
+import json
+import hashlib
+import os
+from pathlib import Path
+from typing import Dict, Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+class LLMClient:
+    def __init__(
+        self,
+        provider: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        cache_dir: Optional[Path] = None,
+        cache_enabled: bool = False
+    ):
+        self.provider = provider
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.cache_dir = cache_dir
+        self.cache_enabled = cache_enabled
+
+    def complete_json(self, system_prompt: str, user_payload: Dict) -> Dict:
+        """Send prompt and payload to LLM and return parsed JSON response."""
+        cache_path = self._cache_path(system_prompt, user_payload)
+        if cache_path is not None and cache_path.exists():
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+
+        if self.provider == "openai":
+            response = self._openai_complete(system_prompt, user_payload)
+        elif self.provider == "anthropic":
+            response = self._anthropic_complete(system_prompt, user_payload)
+        elif self.provider == "local":
+            response = self._local_complete(system_prompt, user_payload)
+        else:
+            raise ValueError(f"Unsupported provider: {self.provider}")
+
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(response, f, indent=2, ensure_ascii=False)
+        return response
+
+    def _cache_path(self, system_prompt: str, user_payload: Dict) -> Optional[Path]:
+        if not self.cache_enabled or self.cache_dir is None:
+            return None
+        cache_input = {
+            "provider": self.provider,
+            "model": self.model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "system_prompt": system_prompt,
+            "user_payload": user_payload
+        }
+        encoded = json.dumps(cache_input, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+        digest = hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+        return self.cache_dir / f"{digest}.json"
+
+    def _openai_complete(self, system_prompt: str, user_payload: Dict) -> Dict:
+        api_key = os.environ.get('OPENAI_API_KEY')
+        if not api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set. Set it in your environment or in the "
+                "notebook Model/API Configuration cell before RUN_LLM=True."
+            )
+
+        request_body = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": f"{system_prompt}\n\nReturn valid JSON only."
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(user_payload, ensure_ascii=False)
+                }
+            ],
+            "temperature": self.temperature,
+            "max_completion_tokens": self.max_tokens,
+            "response_format": {"type": "json_object"},
+            "store": False
+        }
+        response = self._post_openai_chat_completion(request_body, api_key)
+
+        try:
+            choice = response["choices"][0]
+            finish_reason = choice.get("finish_reason")
+            content = choice["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ValueError(f"Unexpected OpenAI response shape: {response}") from exc
+        if finish_reason == "length":
+            raise RuntimeError(
+                "OpenAI stopped because the response hit the token limit before valid JSON was complete. "
+                "Increase max_completion_tokens/config.max_tokens or reduce the requested output size."
+            )
+        return self._parse_json_content(content)
+
+    def _post_openai_chat_completion(self, request_body: Dict, api_key: str) -> Dict:
+        try:
+            return self._post_json(
+                "https://api.openai.com/v1/chat/completions",
+                request_body,
+                {"Authorization": f"Bearer {api_key}"}
+            )
+        except RuntimeError as exc:
+            message = str(exc)
+            if "max_completion_tokens" in message and "Unsupported parameter" in message:
+                fallback_body = dict(request_body)
+                fallback_body["max_tokens"] = fallback_body.pop("max_completion_tokens")
+                return self._post_json(
+                    "https://api.openai.com/v1/chat/completions",
+                    fallback_body,
+                    {"Authorization": f"Bearer {api_key}"}
+                )
+            raise
+
+    def _anthropic_complete(self, system_prompt: str, user_payload: Dict) -> Dict:
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+        if not api_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY is not set. Set it in your environment or in the "
+                "notebook Model/API Configuration cell before RUN_LLM=True."
+            )
+        raise NotImplementedError(
+            "Anthropic provider is selected but the API call is not implemented yet. "
+            "Use the notebook Model/API Configuration cell to choose a provider/model, "
+            "then implement _anthropic_complete for that provider in src/llm_client.py."
+        )
+
+    def _local_complete(self, system_prompt: str, user_payload: Dict) -> Dict:
+        raise NotImplementedError(
+            "Local provider is selected but the local model call is not implemented yet. "
+            "Use the notebook Model/API Configuration cell to choose a provider/model, "
+            "then implement _local_complete in src/llm_client.py."
+        )
+
+    def _post_json(self, url: str, body: Dict, headers: Dict[str, str]) -> Dict:
+        payload = json.dumps(body, ensure_ascii=False).encode('utf-8')
+        request_headers = {
+            "Content-Type": "application/json",
+            **headers
+        }
+        request = Request(url, data=payload, headers=request_headers, method="POST")
+        try:
+            with urlopen(request, timeout=120) as response:
+                response_body = response.read().decode('utf-8')
+        except HTTPError as exc:
+            error_body = exc.read().decode('utf-8', errors='replace')
+            if exc.code == 400 and "invalid model ID" in error_body:
+                raise RuntimeError(
+                    f"OpenAI rejected model '{self.model}' as an invalid model ID. "
+                    "Set MODEL_NAME in the first notebook cell to a valid OpenAI model "
+                    "that supports Chat Completions, such as 'gpt-4.1-mini'."
+                ) from exc
+            raise RuntimeError(f"API request failed with HTTP {exc.code}: {error_body}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"API request failed: {exc.reason}") from exc
+        return json.loads(response_body)
+
+    def _parse_json_content(self, content: str) -> Dict:
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            stripped = content.strip()
+            if stripped.startswith("```"):
+                lines = stripped.splitlines()
+                if lines and lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                return json.loads("\n".join(lines))
+            preview = content[-500:] if content else ""
+            raise ValueError(
+                "Model response was not valid complete JSON. "
+                f"Last 500 characters received: {preview}"
+            )

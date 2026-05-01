@@ -1,0 +1,19 @@
+You are compressing a validated calibration JSON into a non-duplicative WS reinforcement plan.
+
+INPUTS:
+- VALIDATED_CALIBRATION_JSON: The validated calibration output.
+- WS_THEME_DICTIONARY_JSON: The controlled taxonomy.
+
+INSTRUCTIONS:
+- Collapse semantically overlapping judgment_signals into clusters.
+- Prefer one cluster per primary theme.
+- Avoid multiple clusters reinforcing the same WS section.
+- Use absorbed_signal_ids to preserve traceability.
+- Use cross_reference_theme_ids only for secondary relevance.
+- Do not draft new WS paragraphs.
+- Do not create new facts.
+- Produce manual instructions for human review.
+- Ensure ws_rewrite_performed=false, new_facts_created=false.
+- Clusters should be non-duplicative.
+
+OUTPUT: Return only valid JSON with the compressed reinforcement plan structure. No additional text.
