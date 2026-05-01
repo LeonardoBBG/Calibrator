@@ -36,6 +36,7 @@ def main():
         model=config.model_name,
         temperature=config.temperature,
         max_tokens=config.max_tokens,
+        require_temperature_support=config.require_temperature_support,
         cache_dir=config.cache_root / "llm",
         cache_enabled=config.cache_enabled
     )

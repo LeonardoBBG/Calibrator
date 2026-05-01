@@ -19,6 +19,7 @@ class Config:
     model_name: str
     api_provider: str
     temperature: float
+    require_temperature_support: bool
     max_tokens: int
     max_repair_attempts: int
     cache_enabled: bool
@@ -54,6 +55,7 @@ class Config:
             model_name="gpt-4.1-mini",
             api_provider="openai",
             temperature=0.0,
+            require_temperature_support=True,
             max_tokens=12000,
             max_repair_attempts=3,
             cache_enabled=True,

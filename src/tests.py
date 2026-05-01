@@ -181,6 +181,7 @@ def test_llm_cache():
                 model="fake",
                 temperature=0.0,
                 max_tokens=100,
+                require_temperature_support=True,
                 cache_dir=cache_dir,
                 cache_enabled=True
             )

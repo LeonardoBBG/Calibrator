@@ -40,3 +40,9 @@ The notebook supports two flows:
 The WS statement and controlled dictionary do not vary across a batch. They are loaded once, and WS tagging is run once. The per-judgment loop only extracts each judgment, runs calibration/repair/compression, and saves outputs using the original judgment filename stem.
 
 The notebook prompts for `OPENAI_API_KEY` when `RUN_LLM = True` and the key is not already set.
+
+## Model Temperature
+
+The default configuration uses `temperature = 0.0` and requires the selected model to support that setting. This is intentional for stable JSON calibration.
+
+If a model only supports its default temperature, the pipeline stops with a clear error unless `REQUIRE_TEMPERATURE_SUPPORT = False` is set in the notebook.

@@ -13,6 +13,7 @@ class LLMClient:
         model: str,
         temperature: float,
         max_tokens: int,
+        require_temperature_support: bool = True,
         cache_dir: Optional[Path] = None,
         cache_enabled: bool = False
     ):
@@ -20,6 +21,7 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.require_temperature_support = require_temperature_support
         self.cache_dir = cache_dir
         self.cache_enabled = cache_enabled
 
@@ -52,6 +54,7 @@ class LLMClient:
             "provider": self.provider,
             "model": self.model,
             "temperature": self.temperature,
+            "require_temperature_support": self.require_temperature_support,
             "max_tokens": self.max_tokens,
             "system_prompt": system_prompt,
             "user_payload": user_payload
@@ -118,6 +121,13 @@ class LLMClient:
                     {"Authorization": f"Bearer {api_key}"}
                 )
             if "temperature" in message and "Unsupported value" in message:
+                if self.require_temperature_support:
+                    raise RuntimeError(
+                        f"OpenAI model '{self.model}' does not support configured temperature "
+                        f"{self.temperature}. For this calibration task, choose a model that "
+                        "supports low temperature, or set REQUIRE_TEMPERATURE_SUPPORT=False "
+                        "in the notebook to allow the model default."
+                    ) from exc
                 fallback_body = dict(request_body)
                 fallback_body.pop("temperature", None)
                 return self._post_json(
