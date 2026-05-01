@@ -2,6 +2,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
+def default_require_temperature_support(model_name: str) -> bool:
+    """GPT-5 family models may require provider-default temperature."""
+    normalized = model_name.strip().lower()
+    return not normalized.startswith("gpt-5")
+
 @dataclass
 class Config:
     project_root: Path

@@ -225,6 +225,15 @@ def test_judgment_path_selection():
 
     print("Judgment path selection test passed")
 
+def test_default_require_temperature_support():
+    """Test model-aware temperature policy defaults."""
+    from .config import default_require_temperature_support
+
+    assert default_require_temperature_support("gpt-4.1-mini") is True
+    assert default_require_temperature_support("gpt-5.5") is False
+    assert default_require_temperature_support("  GPT-5.4  ") is False
+    print("Temperature support default test passed")
+
 if __name__ == "__main__":
     test_dictionary()
     test_fake_calibration()
@@ -235,4 +244,5 @@ if __name__ == "__main__":
     test_json_reload()
     test_llm_cache()
     test_judgment_path_selection()
+    test_default_require_temperature_support()
     print("All tests passed!")

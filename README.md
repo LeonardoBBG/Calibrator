@@ -43,6 +43,6 @@ The notebook prompts for `OPENAI_API_KEY` when `RUN_LLM = True` and the key is n
 
 ## Model Temperature
 
-The default configuration uses `temperature = 0.0` and requires the selected model to support that setting. This is intentional for stable JSON calibration.
+The default configuration uses `temperature = 0.0` for models that support it. This is intentional for stable JSON calibration.
 
-If a model only supports its default temperature, the pipeline stops with a clear error unless `REQUIRE_TEMPERATURE_SUPPORT = False` is set in the notebook.
+The notebook derives `REQUIRE_TEMPERATURE_SUPPORT` from `MODEL_NAME`. GPT-5.x models default to provider temperature because they may reject explicit temperature settings; other models require low-temperature support by default.
