@@ -260,6 +260,75 @@ def test_ws_tagging_summary():
     assert "duplication_risk" in summary["risk_or_rationale_by_id"]["T01_ROLE_EVOLUTION"]
     print("WS tagging summary test passed")
 
+
+def test_ws_tagging_summary_sanitizes_reinforcement_actions():
+    """Test ABSENT and RISK_ONLY baselines cannot carry reinforcement actions downstream."""
+    from .dictionary_runner import build_ws_tagging_summary
+
+    ws_tagging = {
+        "theme_mappings": [
+            {
+                "mapped_theme_id": "T20_RISK_CONTROL",
+                "theme_presence": "RISK_ONLY",
+                "recommended_action": "REINFORCE",
+                "mapping_rationale": "Quarantine-only issue."
+            },
+            {
+                "mapped_theme_id": "T09_MISSING_LOGS",
+                "theme_presence": "ABSENT",
+                "recommended_action": "ADD EVIDENCE ANCHOR",
+                "mapping_rationale": "Not currently in the WS."
+            }
+        ]
+    }
+
+    summary = build_ws_tagging_summary(ws_tagging)
+    assert summary["recommended_action_by_id"]["T20_RISK_CONTROL"] == "REVIEW_MANUALLY"
+    assert summary["recommended_action_by_id"]["T09_MISSING_LOGS"] == "REVIEW_MANUALLY"
+    assert "summary_action_sanitized" in summary["risk_or_rationale_by_id"]["T20_RISK_CONTROL"]
+    print("WS tagging summary sanitization test passed")
+
+
+def test_ws_baseline_validation_rules():
+    """Test calibration validation enforces WS tagging baseline coupling."""
+    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
+    dictionary = load_dictionary(dict_path)
+    calibration = {
+        "case_metadata": {"case_name": "Test Case"},
+        "case_relevance_to_ws": {},
+        "judgment_signals": [
+            {
+                "signal_id": "SIG_001",
+                "mapped_theme_id": "T01_ROLE_EVOLUTION",
+                "theme_priority": 3,
+                "recommended_action": "REINFORCE",
+                "case_effect": "WIN_DRIVER",
+                "ws_presence": "PRESENT",
+                "dictionary_match_confidence": "HIGH",
+                "cross_reference_theme_ids": []
+            }
+        ],
+        "quality_control": {
+            "ws_rewrite_performed": False,
+            "new_allegations_created": False,
+            "new_themes_created": False
+        }
+    }
+    ws_tagging_summary = {
+        "theme_presence_by_id": {"T01_ROLE_EVOLUTION": "ABSENT"},
+        "recommended_action_by_id": {"T01_ROLE_EVOLUTION": "REVIEW_MANUALLY"}
+    }
+
+    errors = validate_calibration_output(
+        calibration,
+        dictionary,
+        ws_tagging_summary=ws_tagging_summary
+    )
+    assert any("ws_presence cannot be PRESENT" in e["error"] for e in errors)
+    assert any("reinforcement actions are not permitted" in e["error"] for e in errors)
+    print("WS baseline validation test passed")
+
+
 if __name__ == "__main__":
     test_dictionary()
     test_fake_calibration()
@@ -272,4 +341,6 @@ if __name__ == "__main__":
     test_judgment_path_selection()
     test_default_require_temperature_support()
     test_ws_tagging_summary()
+    test_ws_tagging_summary_sanitizes_reinforcement_actions()
+    test_ws_baseline_validation_rules()
     print("All tests passed!")

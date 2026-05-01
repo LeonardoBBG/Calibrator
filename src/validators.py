@@ -28,6 +28,13 @@ VALID_CONFIDENCE = {
     "LOW"
 }
 
+REINFORCEMENT_ACTIONS = {
+    "REINFORCE",
+    "ADD FACT",
+    "ADD EVIDENCE ANCHOR"
+}
+
+
 @dataclass(frozen=True)
 class CalibrationValidationContext:
     theme_ids: Set[str]
@@ -42,10 +49,12 @@ class CalibrationValidationContext:
             actions_map=get_allowed_actions_by_theme(dictionary)
         )
 
+
 def validate_calibration_output(
     calibration: Dict,
     dictionary: Dict = None,
-    context: CalibrationValidationContext = None
+    context: CalibrationValidationContext = None,
+    ws_tagging_summary: Dict = None
 ) -> List[Dict]:
     """Validate the calibration output against rules."""
     if context is None:
@@ -101,6 +110,16 @@ def validate_calibration_output(
         if ws_presence and ws_presence not in VALID_WS_PRESENCE:
             errors.append({"path": f"{path_prefix}.ws_presence", "error": "Invalid ws_presence", "value": ws_presence})
 
+        if mapped_theme_id and ws_tagging_summary:
+            _validate_ws_baseline_coupling(
+                errors,
+                path_prefix,
+                mapped_theme_id,
+                recommended_action,
+                ws_presence,
+                ws_tagging_summary
+            )
+
         confidence = signal.get("dictionary_match_confidence")
         if confidence and confidence not in VALID_CONFIDENCE:
             errors.append({"path": f"{path_prefix}.dictionary_match_confidence", "error": "Invalid confidence", "value": confidence})
@@ -124,3 +143,52 @@ def validate_calibration_output(
         errors.append({"path": "quality_control.new_allegations_created", "error": "Must be false", "value": qc.get("new_allegations_created")})
 
     return errors
+
+
+def _validate_ws_baseline_coupling(
+    errors: List[Dict],
+    path_prefix: str,
+    mapped_theme_id: str,
+    recommended_action: str,
+    ws_presence: str,
+    ws_tagging_summary: Dict
+) -> None:
+    presence_by_id = ws_tagging_summary.get("theme_presence_by_id", {})
+    baseline_presence = presence_by_id.get(mapped_theme_id)
+    if not baseline_presence:
+        return
+
+    if baseline_presence == "ABSENT":
+        if ws_presence == "PRESENT":
+            errors.append({
+                "path": f"{path_prefix}.ws_presence",
+                "error": "WS tagging summary marks mapped theme ABSENT; ws_presence cannot be PRESENT",
+                "value": ws_presence
+            })
+        if recommended_action in REINFORCEMENT_ACTIONS:
+            errors.append({
+                "path": f"{path_prefix}.recommended_action",
+                "error": "WS tagging summary marks mapped theme ABSENT; reinforcement actions are not permitted",
+                "value": recommended_action
+            })
+
+    if baseline_presence == "LATENT" and recommended_action in REINFORCEMENT_ACTIONS:
+        errors.append({
+            "path": f"{path_prefix}.recommended_action",
+            "error": "WS tagging summary marks mapped theme LATENT; use REVIEW_MANUALLY unless manually approved outside the automated pipeline",
+            "value": recommended_action
+        })
+
+    if baseline_presence == "RISK_ONLY":
+        if ws_presence == "PRESENT":
+            errors.append({
+                "path": f"{path_prefix}.ws_presence",
+                "error": "WS tagging summary marks mapped theme RISK_ONLY; ws_presence cannot be PRESENT",
+                "value": ws_presence
+            })
+        if recommended_action in REINFORCEMENT_ACTIONS:
+            errors.append({
+                "path": f"{path_prefix}.recommended_action",
+                "error": "WS tagging summary marks mapped theme RISK_ONLY; reinforcement actions are not permitted",
+                "value": recommended_action
+            })

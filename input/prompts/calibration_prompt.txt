@@ -67,16 +67,16 @@ For each signal:
 3.6 Set `mapped_theme_id` to the theme_id of the chosen theme.
 
 3.7 Check WS_TAGGING_SUMMARY_JSON for the chosen mapped_theme_id:
-    - theme_presence_by_id gives the WS baseline status.
-    - recommended_action_by_id gives the WS baseline action.
+    - theme_presence_by_id gives the authoritative WS baseline status.
+    - recommended_action_by_id gives an advisory WS baseline action only.
     - risk_or_rationale_by_id gives any duplication, risk, or rationale note.
     - WS_TAGGING_SUMMARY_JSON does not control theme_priority. Always read theme_priority from WS_THEME_DICTIONARY_JSON only.
 
-Use this baseline when deciding ws_presence and recommended_action. Do not map a judgment signal into a theme that is ABSENT in the WS unless the correct action is DO_NOT_USE or REVIEW_MANUALLY, or unless quality_control.notes explains why human review is required.
+Use theme_presence_by_id when deciding ws_presence and recommended_action. recommended_action_by_id is not contractual and must not override the dictionary permitted_actions, the case_effect/action coupling rule, or the baseline coupling rules below. Do not map a judgment signal into a theme that is ABSENT in the WS unless the correct action is DO_NOT_USE or REVIEW_MANUALLY, or unless quality_control.notes explains why human review is required.
 
 Baseline coupling rules:
 - If baseline theme_presence is PRESENT, the signal may use ws_presence=PRESENT if there is a real analogical bridge.
-- If baseline theme_presence is LATENT, set ws_presence=PARTIAL by default and recommended_action=REVIEW_MANUALLY by default. Do not use REINFORCE for a LATENT baseline unless relevance_to_ws explains why reinforcement is safer than review.
+- If baseline theme_presence is LATENT, set ws_presence=PARTIAL by default and recommended_action=REVIEW_MANUALLY by default. In the automated pipeline, do not use REINFORCE, ADD FACT, or ADD EVIDENCE ANCHOR for a LATENT baseline. Human review can later override this outside the JSON.
 - If baseline theme_presence is ABSENT, set ws_presence=ABSENT by default. Do not set ws_presence=PRESENT. recommended_action must be DO_NOT_USE or REVIEW_MANUALLY unless quality_control.notes explains a specific WS_TEXT contradiction in the baseline.
 - If baseline theme_presence is RISK_ONLY, treat the signal as a quarantine candidate. recommended_action must be DO_NOT_USE or REVIEW_MANUALLY. Use case_effect=NON_TRANSFERABLE where the judgment signal is fact-specific or would invite speculation.
 

@@ -45,6 +45,18 @@ The notebook prompts for `OPENAI_API_KEY` when `RUN_LLM = True` and the key is n
 
 WS tagging is not just a review artifact. The pipeline saves the full WS tagging output and also derives a compact WS tagging summary. That summary is passed into every judgment calibration call as `WS_TAGGING_SUMMARY_JSON`, so each judgment is calibrated against the same fixed WS/theme baseline.
 
+The summary's `theme_presence_by_id` is authoritative for calibration. `recommended_action_by_id` is advisory only; calibration and repair must still use the dictionary's permitted actions and the baseline coupling rules. Automated validation rejects reinforcement/add actions for `ABSENT` or `RISK_ONLY` baselines, rejects `PRESENT` WS presence for those baselines, and sends `LATENT` baselines to review rather than reinforcement.
+
+## Repair
+
+Repair runs only after calibration validation fails. It is a constructive LLM repair step: the invalid calibration JSON, validation errors, dictionary, and WS tagging summary are re-prompted through `input/prompts/repair_prompt.txt`. The repair step does not locally mutate or relax failed output; the repaired JSON must pass the same validator before it is saved as validated calibration.
+
+## Cache And Outputs
+
+Text extraction is cached by source file path, size, and modified time. LLM responses are cached by model, prompt, payload, temperature, and token settings, so a WS, dictionary, prompt, or judgment change creates a different cache key.
+
+Outputs accumulate under `output/` by artifact type: `ws_tagging/`, `calibration_raw/`, `calibration_repaired/`, `calibration_validated/`, and `compression/`. Batch mode currently produces one validated calibration and one reinforcement plan per judgment; there is no cross-judgment aggregation layer yet.
+
 ## Model Temperature
 
 The default configuration uses `temperature = 0.0` for models that support it. This is intentional for stable JSON calibration.

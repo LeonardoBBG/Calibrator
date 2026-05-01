@@ -80,7 +80,11 @@ def main():
             validate_reload=config.validate_json_writes
         )
 
-        errors = validate_calibration_output(calibration, context=validation_context)
+        errors = validate_calibration_output(
+            calibration,
+            context=validation_context,
+            ws_tagging_summary=ws_tagging_summary
+        )
         validated_calibration = calibration
         repair_attempts = 0
 
@@ -96,8 +100,19 @@ def main():
                 errors,
                 validate_reload=config.validate_json_writes
             )
-            validated_calibration = repair_calibration_output(validated_calibration, errors, dictionary, repair_prompt, llm_client)
-            errors = validate_calibration_output(validated_calibration, context=validation_context)
+            validated_calibration = repair_calibration_output(
+                validated_calibration,
+                errors,
+                dictionary,
+                ws_tagging_summary,
+                repair_prompt,
+                llm_client
+            )
+            errors = validate_calibration_output(
+                validated_calibration,
+                context=validation_context,
+                ws_tagging_summary=ws_tagging_summary
+            )
 
         if errors:
             raise ValueError(

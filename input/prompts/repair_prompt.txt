@@ -1,26 +1,79 @@
-You are repairing a calibration JSON output that failed validation. Your task is to fix only the validation errors without redoing the entire analysis.
+You are repairing a calibration JSON output that failed validation. Your task is to fix only the validation errors without redoing the analysis.
 
-INPUTS:
+INPUTS
 - INVALID_CALIBRATION_JSON: The current invalid calibration output.
-- VALIDATION_ERRORS: List of errors with path, error, value.
+- VALIDATION_ERRORS: List of errors with path, error, and value.
 - WS_THEME_DICTIONARY_JSON: The controlled taxonomy.
+- WS_TAGGING_SUMMARY_JSON: Compact WS baseline used by calibration.
 
-INSTRUCTIONS:
-- Fix only the issues listed in VALIDATION_ERRORS.
-- Do not redo the judgment analysis from scratch.
-- Do not create new themes; use only theme_ids from the dictionary.
-- Ensure theme_priority matches the dictionary for each mapped_theme_id.
-- Use only permitted_actions for the mapped theme.
-- Ensure case_effect is exactly one of:
-  WIN_DRIVER, LOSS_DRIVER, POLKEY_RISK, CONTRIBUTION_RISK, NEUTRAL_CONTEXT, NON_TRANSFERABLE.
-- Do not put impact strength or prose such as High, Low, adverse, or helpful in case_effect.
-  Move that meaning into an explanatory narrative field if needed.
-- Ensure ws_presence, if included, is exactly one of:
-  PRESENT, PARTIAL, ABSENT, UNCLEAR.
-- Ensure dictionary_match_confidence, if included, is exactly one of:
-  HIGH, MEDIUM, LOW.
-- Ensure cross_reference_theme_ids are valid and do not include the mapped_theme_id.
-- Set quality_control flags correctly.
-- Return the corrected JSON with the same structure.
+CORE PRINCIPLE
 
-OUTPUT: Return only valid JSON. No additional text.
+Repair, do not re-analyse. Fix only the fields implicated by VALIDATION_ERRORS. Preserve all other content exactly as it appears in INVALID_CALIBRATION_JSON, including unaffected signal_summary text, judgment_references, relevance_to_ws, and any signals not flagged.
+
+If a field was not flagged by validation, do not modify it, even if you would have written it differently in a fresh analysis.
+
+SCOPE OF REPAIR
+
+For each validation error, identify the signal and field implicated, fix it according to the rules below, and then check whether the fix has cascade effects on related fields in the same signal. If a fix changes a field that other fields depend on — for example, fixing ws_presence from PRESENT to ABSENT may invalidate a recommended_action of REINFORCE — adjust the dependent fields in the same repair pass to maintain coupling-rule compliance. Record any cascade adjustments in quality_control.notes.
+
+Do not introduce repairs to signals that were not flagged. Do not modify fields that were not flagged unless they are direct cascade dependencies of a flagged field.
+
+DICTIONARY-BACKED FIXES
+
+- Do not create new themes. Use only theme_ids that exist in WS_THEME_DICTIONARY_JSON.
+- Copy theme_priority directly from the integer value of the `theme_priority` field of the matched dictionary entry. Do not derive theme_priority from the position of the theme in `risk_rule`, from the numeric portion of theme_id, or from any other location.
+- recommended_action must be one of the permitted_actions for the mapped theme. Read permitted_actions from the dictionary entry.
+- cross_reference_theme_ids must contain only valid theme_ids from the dictionary, must not include the mapped_theme_id, and must respect the primary theme's duplication_guardrail field.
+
+ENUM COMPLIANCE
+
+case_effect must be exactly one of:
+WIN_DRIVER, LOSS_DRIVER, POLKEY_RISK, CONTRIBUTION_RISK, NEUTRAL_CONTEXT, NON_TRANSFERABLE.
+
+Do not include impact-strength prose such as High, Low, adverse, or helpful in case_effect. If validation flagged a compound value, replace it with the dominant single enum value (the one driving the action constraint) and move any qualifying narrative into signal_summary or relevance_to_ws.
+
+ws_presence, if included, must be exactly one of:
+PRESENT, PARTIAL, ABSENT, UNCLEAR.
+
+dictionary_match_confidence, if included, must be exactly one of:
+HIGH, MEDIUM, LOW.
+
+WS BASELINE COUPLING
+
+Apply the WS_TAGGING_SUMMARY_JSON coupling rules to every signal touched by the repair. theme_presence_by_id is authoritative; recommended_action_by_id is advisory only.
+
+- If the mapped theme baseline is ABSENT in the summary: ws_presence must not be PRESENT, and recommended_action must not be REINFORCE, ADD FACT, or ADD EVIDENCE ANCHOR.
+- If the mapped theme baseline is LATENT: recommended_action defaults to REVIEW_MANUALLY in the automated repair path. Do not use reinforcement-type actions.
+- If the mapped theme baseline is RISK_ONLY: treat the signal as quarantine or review material. ws_presence must not be PRESENT, and recommended_action must not be reinforcement-type.
+- If the mapped theme baseline is PRESENT: no additional baseline constraint applies; the dictionary's permitted_actions and the case_effect / action coupling govern the action choice.
+
+UNFIXABLE ERRORS
+
+If a validation error cannot be unambiguously fixed from the available context — for example, if mapped_theme_id refers to a theme that does not exist in the dictionary and the correct replacement cannot be determined from the signal's surrounding fields — apply the safe-default rule:
+
+- Set the affected signal's recommended_action to REVIEW_MANUALLY (if permitted by the most likely correct theme; otherwise preserve the original action).
+- Set ws_presence to UNCLEAR if applicable.
+- Record the unresolved error in quality_control.notes with the signal_id and the original validation error message.
+
+Do not fabricate a fix when the correct value cannot be determined from context. A flagged signal that cannot be safely repaired must be left in a quarantined state for human review rather than silently corrected with a guess.
+
+ORDERING
+
+If a repair changes a theme_priority value and the calibration output was ordered by theme_priority, re-sort the signals after the repair to maintain the ordering invariant. If a repair does not change any theme_priority, leave ordering unchanged.
+
+QUALITY CONTROL DISCIPLINE
+
+Set each quality_control flag only after performing the corresponding check on the repaired output. Do not inherit flag values from the invalid input. Do not assert a flag is true without re-verifying it on the repaired version.
+
+Specifically:
+- Re-verify that every mapped_theme_id and cross-referenced theme_id exists in the dictionary.
+- Re-verify that every theme_priority equals the integer in the corresponding dictionary entry.
+- Re-verify that every recommended_action is in the corresponding theme's permitted_actions array.
+- Re-verify that every case_effect, ws_presence, and dictionary_match_confidence value is in the correct enum.
+- Re-verify that every signal complies with the WS baseline coupling rules above.
+
+If the repair could not resolve all validation errors (because some were flagged as unfixable per the safe-default rule), set manual_review_required to true and list the unresolved signal_ids in quality_control.notes.
+
+OUTPUT
+
+Return only valid JSON with the same top-level structure as INVALID_CALIBRATION_JSON. No additional text. No markdown.

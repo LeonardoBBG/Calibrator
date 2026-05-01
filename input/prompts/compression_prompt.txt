@@ -1,19 +1,283 @@
 You are compressing a validated calibration JSON into a non-duplicative WS reinforcement plan.
 
-INPUTS:
-- VALIDATED_CALIBRATION_JSON: The validated calibration output.
-- WS_THEME_DICTIONARY_JSON: The controlled taxonomy.
+INPUTS
+- VALIDATED_CALIBRATION_JSON: The validated calibration output produced by the prior calibration step. Each entry in `judgment_signals` contains a signal_id, a mapped_theme_id, a theme_priority, a recommended_action, a case_effect, and supporting fields.
+- WS_THEME_DICTIONARY_JSON: The controlled taxonomy of WS themes. This is the authoritative source for theme_priority, permitted_actions, and duplication_guardrail.
 
-INSTRUCTIONS:
-- Collapse semantically overlapping judgment_signals into clusters.
-- Prefer one cluster per primary theme.
-- Avoid multiple clusters reinforcing the same WS section.
-- Use absorbed_signal_ids to preserve traceability.
-- Use cross_reference_theme_ids only for secondary relevance.
-- Do not draft new WS paragraphs.
-- Do not create new facts.
-- Produce manual instructions for human review.
-- Ensure ws_rewrite_performed=false, new_facts_created=false.
-- Clusters should be non-duplicative.
+CORE TASK
+Group calibration signals into clusters so that each cluster reinforces a single WS section and no two clusters reinforce the same section. Preserve full signal traceability through `absorbed_signal_ids`. Do not draft WS text. Do not create new facts. Do not invent themes.
 
-OUTPUT: Return only valid JSON with the compressed reinforcement plan structure. No additional text.
+You are operating one layer above the calibration. Where the calibration may contain inherited errors (wrong theme_priority values, missing cross-references, undefended enum drift), you re-validate against the dictionary rather than copying forward.
+
+================================================================
+STEP 1 — VERIFY INPUTS
+================================================================
+
+1.1 Confirm every signal in VALIDATED_CALIBRATION_JSON has a signal_id, mapped_theme_id, and recommended_action. If any are missing, list them in quality_control.notes.
+
+1.2 Confirm every mapped_theme_id in the calibration exists in WS_THEME_DICTIONARY_JSON. If any do not, refuse to absorb that signal and quarantine it in quality_control.notes.
+
+1.3 Build an internal map: signal_id → (mapped_theme_id, case_effect, recommended_action). You will use this to preserve traceability throughout.
+
+================================================================
+STEP 2 — IDENTIFY COMPRESSION CANDIDATES
+================================================================
+
+Two signals are compression candidates if and only if all of the following are true:
+
+2.1 They share the same primary mapped_theme_id, OR they map to themes that the dictionary's `non_duplication_controls` section identifies as covering the same WS section.
+
+2.2 They would reinforce the same WS destination (i.e., their `relevance_to_ws` text or `ws_destination_guidance` would target the same paragraph cluster of the WS).
+
+2.3 Their case_effects are compatible under Step 4.
+
+If signals share a theme but target distinct WS destinations (e.g., one for the disciplinary stage, one for the appeal stage), they are NOT compression candidates and must be kept in separate clusters.
+
+================================================================
+STEP 3 — DEFAULT TO 1:1 MAPPING
+================================================================
+
+The default behaviour is one cluster per signal. Compression is the exception, not the rule.
+
+Compress only when steps 2.1, 2.2, and 2.3 are all satisfied AND keeping the signals separate would create duplicate human_review_instructions for the same WS section.
+
+If you compress, the cluster's compressed_signal_summary must explicitly identify what each absorbed signal contributes. Compression must not erase analytical detail.
+
+================================================================
+STEP 4 — RESOLVE CASE_EFFECT FOR COMPRESSED CLUSTERS
+================================================================
+
+case_effect must be exactly one of the six enum values from the calibration schema:
+WIN_DRIVER, LOSS_DRIVER, POLKEY_RISK, CONTRIBUTION_RISK, NEUTRAL_CONTEXT, NON_TRANSFERABLE.
+
+Do NOT create compound values such as "MIXED_WIN_DRIVER_AND_LOSS_DRIVER" or "CONTRIBUTION_RISK_AND_NON_TRANSFERABLE". These are enum violations.
+
+When absorbed signals have different case_effects, apply this dominance rule:
+
+- If any absorbed signal is NON_TRANSFERABLE → cluster case_effect is NON_TRANSFERABLE.
+- Else if any absorbed signal is LOSS_DRIVER → cluster case_effect is LOSS_DRIVER.
+- Else if any absorbed signal is POLKEY_RISK or CONTRIBUTION_RISK → cluster case_effect is the one present (or POLKEY_RISK if both are present).
+- Else if any absorbed signal is WIN_DRIVER → cluster case_effect is WIN_DRIVER.
+- Else cluster case_effect is NEUTRAL_CONTEXT.
+
+When absorbed signals have different case_effects, ALSO populate an optional field `secondary_case_effects` as a list of the non-dominant case_effect values present in the absorbed signals. This preserves the mixed-effect information without violating the enum.
+
+If absorbed signals have different case_effects AND those differences would lead to materially different human_review_instructions, do not compress them. Keep them as separate clusters.
+
+================================================================
+STEP 5 — RE-VALIDATE THEME_PRIORITY AGAINST DICTIONARY
+================================================================
+
+For each cluster, populate `theme_priority` by reading the integer value from the `theme_priority` field of the matched entry in WS_THEME_DICTIONARY_JSON.
+
+Do NOT copy theme_priority from the absorbed calibration signals. The calibration may contain inherited offset errors. The compression layer is responsible for re-validating against the dictionary as the authoritative source.
+
+If the dictionary's theme_priority for a theme conflicts with the value in any absorbed signal, record the discrepancy in quality_control.notes. Format: "Signal {signal_id} theme_priority {n} did not match dictionary theme_priority {m} for {theme_id}; dictionary value used."
+
+================================================================
+STEP 6 — SELECT CLUSTER_ACTION
+================================================================
+
+6.1 Read the `permitted_actions` array of the primary theme in the dictionary.
+
+6.2 cluster_action must be one of those permitted actions.
+
+6.3 Apply the case_effect / cluster_action coupling rule:
+
+- If case_effect is WIN_DRIVER and ws_presence is PRESENT and dictionary_match_confidence is HIGH: cluster_action is REINFORCE.
+- If case_effect is WIN_DRIVER and ws_presence is PARTIAL or LATENT: cluster_action is REVIEW_MANUALLY (or ADD EVIDENCE ANCHOR if the dictionary entry permits it).
+- If case_effect is LOSS_DRIVER: cluster_action is REVIEW_MANUALLY or SOFTEN, depending on which is permitted by the dictionary entry. If neither is permitted, cluster_action is REVIEW_MANUALLY.
+- If case_effect is POLKEY_RISK or CONTRIBUTION_RISK: cluster_action is REVIEW_MANUALLY. REINFORCE is not permitted because remedy-stage findings should not be reinforced as factual narrative.
+- If case_effect is NEUTRAL_CONTEXT: cluster_action is REVIEW_MANUALLY.
+- If case_effect is NON_TRANSFERABLE: cluster_action is REVIEW_MANUALLY or DO_NOT_USE, with DO_NOT_USE being the default.
+- If dictionary_match_confidence is LOW for any absorbed signal: cluster_action is REVIEW_MANUALLY regardless of case_effect.
+
+6.4 If you depart from the default action above, record the reason in quality_control.notes.
+
+================================================================
+STEP 7 — POPULATE CROSS-REFERENCES
+================================================================
+
+7.1 cross_reference_theme_ids identifies themes with secondary relevance to the cluster.
+
+7.2 Inherit cross-references from the absorbed signals: any theme listed as a cross-reference in any absorbed signal becomes a candidate for the cluster's cross-references.
+
+7.3 Apply the dictionary's duplication_guardrail check: read the primary theme's `duplication_guardrail` field. If it names theme X as a competitor that should not be merged, do not include X in cross_reference_theme_ids. Instead, note in quality_control.notes that X was considered and excluded by guardrail.
+
+7.4 If an absorbed signal's mapped theme is more specific than the cluster's primary theme (e.g., the calibration mapped a signal to T14 but the dictionary's specificity hierarchy suggests T09 is more specific), add the more-specific theme to cross_reference_theme_ids and record this in quality_control.notes.
+
+7.5 cross_reference_theme_ids must not include the cluster's primary_theme_id.
+
+7.6 Cross-references do not generate independent action items.
+
+================================================================
+STEP 8 — ASSIGN CLUSTER TO BUCKET
+================================================================
+
+Each cluster belongs in exactly one of three top-level buckets:
+
+8.1 `reinforcement_clusters` — clusters where cluster_action is REINFORCE or ADD EVIDENCE ANCHOR. These are the active reinforcement targets.
+
+8.2 `manual_review_clusters` — clusters where cluster_action is REVIEW_MANUALLY or SOFTEN. These require human judgment before any WS modification.
+
+8.3 `risk_control_clusters` — clusters whose primary_theme_id is T20_RISK_CONTROL, or whose case_effect is NON_TRANSFERABLE. These are quarantine clusters.
+
+================================================================
+STEP 9 — DRAFT HUMAN_REVIEW_INSTRUCTIONS
+================================================================
+
+For each cluster, write between two and five human_review_instructions. Each instruction must:
+
+9.1 Be a single imperative sentence directing a human reviewer to perform a specific check or avoid a specific action.
+
+9.2 Reference WS evidence anchors that already exist, not new ones. Do not direct the reviewer to add facts.
+
+9.3 Where the cluster is REVIEW_MANUALLY, identify the specific tension or risk the reviewer must resolve.
+
+9.4 Where the cluster is in risk_control_clusters, include at least one instruction beginning "Do not" that specifies what the reviewer must not do.
+
+9.5 If absorbed signals had different case_effects, include an instruction explicitly preserving the tension (e.g., "Avoid wording that asserts no manager could have held any genuine belief, because the absorbed signals include a LOSS_DRIVER on this point").
+
+================================================================
+STEP 10 — POPULATE NON_DUPLICATION_CONTROLS
+================================================================
+
+The non_duplication_controls field is a flat object recording which clusters cover which boundaries between adjacent themes. For each pair of themes that are semantically adjacent in the dictionary, write a single sentence explaining which cluster owns each side of the boundary.
+
+Required boundaries to address (where signals are present for the relevant themes):
+- T06 vs T14 (consistency of explanation vs overall evidential failure)
+- T11 vs T16 vs T18 (pre-hearing vs during-hearing-failure-to-pause vs appeal-no-cure)
+- T08 vs T09 vs T10 vs T14 (specific evidential themes vs residual)
+- T13 vs T12 (minutes vs hearing conduct)
+- T15 vs T18 (predetermination vs appeal failure)
+- T17 vs T18 (comparator vs general appeal failure)
+- T20 (quarantine — confirm it is not a drafting destination)
+
+Omit any boundary where neither side has a cluster in the current plan.
+
+================================================================
+STEP 11 — POPULATE GLOBAL HUMAN REVIEW INSTRUCTIONS
+================================================================
+
+Provide between five and ten global instructions covering:
+
+11.1 The prohibition on drafting new WS paragraphs from the plan.
+11.2 The prohibition on importing case-specific facts from the source judgment.
+11.3 The instruction to use the plan only to test existing WS themes for evidence, non-duplication, and accuracy.
+11.4 The discipline of verifying WS evidence anchors before reinforcing any theme.
+11.5 The handling of REVIEW_MANUALLY clusters (overstatement, missing anchors, duplication checks).
+11.6 The maintenance of the distinction between procedural unfairness, evidential insufficiency, and proof of innocence or absence of genuine belief.
+11.7 The prohibition on relying on remedy-stage observations as concluded findings.
+
+================================================================
+STEP 12 — TOP-LEVEL OUTPUT SCHEMA
+================================================================
+
+The output JSON must contain exactly these top-level keys, in this order:
+
+{
+  "plan_metadata": { ... },
+  "compression_summary": { ... },
+  "reinforcement_clusters": [ ... ],
+  "manual_review_clusters": [ ... ],
+  "risk_control_clusters": [ ... ],
+  "non_duplication_controls": { ... },
+  "global_human_review_instructions": [ ... ],
+  "quality_control": { ... }
+}
+
+plan_metadata required fields:
+- case_name, case_number, source_judgment_transferability, purpose, plus the four boolean integrity flags (ws_rewrite_performed, new_facts_created, new_allegations_created, new_themes_created), and external_law_added, semantic_duplication_checked.
+
+compression_summary required fields:
+- input_judgment_signal_count
+- compressed_cluster_count
+- reinforcement_cluster_count
+- manual_review_cluster_count
+- risk_control_cluster_count
+- non_transferable_or_quarantined_signal_ids (array of signal_ids)
+- compression_note (one sentence explaining compression decisions)
+
+Each cluster must contain ALL of:
+- cluster_id (string, sequential: C01, C02, ...)
+- primary_theme_id (string, valid theme_id from dictionary)
+- theme_priority (integer, copied from dictionary entry per Step 5)
+- cluster_action (string, from permitted_actions per Step 6)
+- absorbed_signal_ids (array of signal_ids from the calibration)
+- case_effect (string, from enum per Step 4)
+- secondary_case_effects (array, only present when absorbed signals have mixed case_effects)
+- ws_presence (string, from enum)
+- dictionary_match_confidence (string, from enum)
+- cross_reference_theme_ids (array, may be empty)
+- judgment_references (array of paragraph numbers from absorbed signals, deduplicated)
+- compressed_signal_summary (string, two to four sentences)
+- ws_destination_guidance (array of WS section names)
+- human_review_instructions (array, two to five items per Step 9)
+- no_ws_text_drafted (boolean, must be true)
+- new_facts_created (boolean, must be false)
+
+Risk-control clusters must additionally contain:
+- do_not_use_signal_ids_for_ws_reinforcement (array of signal_ids that must not be used at all)
+
+================================================================
+STEP 13 — QUALITY CONTROL DISCIPLINE
+================================================================
+
+The quality_control block must contain only flags whose underlying check has actually been performed during this run. Do not invent flags. Do not assert a flag is true without performing the check.
+
+Required quality_control flags (each must be set after performing the corresponding check):
+
+- valid_dictionary_theme_ids_only — set to true only after confirming every primary_theme_id and every cross-referenced theme_id exists in WS_THEME_DICTIONARY_JSON.
+
+- theme_priorities_match_dictionary — set to true only after confirming, for each cluster, that theme_priority equals the integer in the dictionary entry's theme_priority field. If you used a dictionary value that differed from the absorbed signal's value, the flag is still true (the discrepancy is recorded in notes), because the dictionary is authoritative.
+
+- absorbed_signal_ids_preserve_traceability — set to true only after confirming the union of all absorbed_signal_ids across all clusters equals the set of signal_ids in the calibration input (no signal lost, no signal absorbed twice).
+
+- cross_reference_theme_ids_used_only_for_secondary_relevance — set to true only after confirming no cross-reference duplicates an action item.
+
+- cross_references_respect_guardrails — set to true only after confirming, for each cross-referenced theme, that the primary theme's duplication_guardrail does not exclude the combination.
+
+- clusters_are_non_duplicative — set to true only after confirming no two clusters target the same WS destination with overlapping reinforcement instructions.
+
+- case_effect_enum_compliant — set to true only after confirming every cluster's case_effect is one of the six valid enum values and no compound values were produced.
+
+- ws_rewrite_performed — set to false only after confirming no WS text has been drafted.
+
+- new_facts_created — set to false only after confirming no new facts have been added.
+
+- new_allegations_created — set to false only after confirming no new allegations have been created.
+
+- new_themes_created — set to false only after confirming no new themes have been created.
+
+- manual_review_required — set to true (this plan always requires human review).
+
+quality_control.notes is an array of strings. Use it to record:
+- any discrepancy between absorbed signal theme_priority values and the dictionary value used.
+- any cross-reference theme considered and excluded by guardrail.
+- any non-default cluster_action selection and its reason.
+- any signal that could not be absorbed or quarantined.
+
+================================================================
+STEP 14 — VALIDATION BEFORE RETURNING
+================================================================
+
+Before returning the JSON, internally verify:
+
+1. Every primary_theme_id and cross-referenced theme_id exists in WS_THEME_DICTIONARY_JSON.
+2. Every theme_priority equals the integer in the dictionary entry's theme_priority field.
+3. Every cluster_action is in the corresponding theme's permitted_actions array.
+4. Every case_effect is one of the six enum values. No compound values exist.
+5. Every required field per Step 12 is present in every cluster.
+6. The union of all absorbed_signal_ids across all clusters equals the set of signal_ids in the calibration input.
+7. No signal_id is absorbed in more than one cluster.
+8. cross_reference_theme_ids respect the primary theme's duplication_guardrail.
+9. cross_reference_theme_ids do not contain the primary_theme_id.
+10. case_effect / cluster_action coupling rules from Step 6.3 are satisfied or a reason is recorded.
+11. Top-level keys are exactly as specified in Step 12.
+12. quality_control flags reflect actually-performed checks, with no false positives.
+13. Each cluster has no_ws_text_drafted: true and new_facts_created: false.
+
+If any check fails, fix the underlying cluster or record the failure in quality_control.notes before returning.
+
+OUTPUT
+Return only valid JSON. No markdown. No commentary outside the JSON.
