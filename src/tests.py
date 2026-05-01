@@ -234,6 +234,32 @@ def test_default_require_temperature_support():
     assert default_require_temperature_support("  GPT-5.4  ") is False
     print("Temperature support default test passed")
 
+def test_ws_tagging_summary():
+    """Test compact WS tagging summary generation."""
+    from .dictionary_runner import build_ws_tagging_summary
+
+    ws_tagging = {
+        "theme_mappings": [
+            {
+                "mapped_theme_id": "T01_ROLE_EVOLUTION",
+                "theme_priority": 3,
+                "theme_presence": "PRESENT",
+                "recommended_action": "REINFORCE",
+                "cross_reference_theme_ids": ["T02_MANAGEMENT_DIRECTION"],
+                "duplication_risk": "Keep distinct from management direction.",
+                "mapping_rationale": "WS expressly describes role evolution."
+            }
+        ]
+    }
+
+    summary = build_ws_tagging_summary(ws_tagging)
+    assert summary["theme_presence_by_id"]["T01_ROLE_EVOLUTION"] == "PRESENT"
+    assert summary["recommended_action_by_id"]["T01_ROLE_EVOLUTION"] == "REINFORCE"
+    assert summary["theme_priority_by_id"]["T01_ROLE_EVOLUTION"] == 3
+    assert summary["cross_reference_theme_ids_by_id"]["T01_ROLE_EVOLUTION"] == ["T02_MANAGEMENT_DIRECTION"]
+    assert "duplication_risk" in summary["risk_or_rationale_by_id"]["T01_ROLE_EVOLUTION"]
+    print("WS tagging summary test passed")
+
 if __name__ == "__main__":
     test_dictionary()
     test_fake_calibration()
@@ -245,4 +271,5 @@ if __name__ == "__main__":
     test_llm_cache()
     test_judgment_path_selection()
     test_default_require_temperature_support()
+    test_ws_tagging_summary()
     print("All tests passed!")

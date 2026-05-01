@@ -7,6 +7,7 @@ def run_calibration(
     ws_text: str,
     judgment_text: str,
     dictionary: Dict,
+    ws_tagging_summary: Dict,
     calibration_prompt: str,
     llm_client: "LLMClient"
 ) -> Dict:
@@ -14,7 +15,8 @@ def run_calibration(
     payload = {
         "WS_TEXT": ws_text,
         "PDF_TEXT": judgment_text,
-        "WS_THEME_DICTIONARY_JSON": dictionary
+        "WS_THEME_DICTIONARY_JSON": dictionary,
+        "WS_TAGGING_SUMMARY_JSON": ws_tagging_summary
     }
     # The prompt is the system prompt, payload as user message
     response = llm_client.complete_json(calibration_prompt, payload)

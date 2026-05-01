@@ -5,7 +5,7 @@ from .config import Config
 from .io_utils import ensure_dirs, read_text_file, write_json, write_text, make_run_id, make_source_slug
 from .text_extract import load_text
 from .dictionary_loader import load_dictionary, validate_dictionary
-from .dictionary_runner import run_ws_tagging
+from .dictionary_runner import build_ws_tagging_summary, run_ws_tagging
 from .llm_client import LLMClient
 from .calibration_runner import run_calibration
 from .validators import CalibrationValidationContext, validate_calibration_output
@@ -43,9 +43,15 @@ def main():
 
     # Run the WS tagging prompt against the controlled dictionary.
     ws_tagging = run_ws_tagging(ws_text, dictionary, ws_tagging_prompt, llm_client)
+    ws_tagging_summary = build_ws_tagging_summary(ws_tagging)
     write_json(
         config.output_root / "ws_tagging" / f"{run_id}_ws_tagging.json",
         ws_tagging,
+        validate_reload=config.validate_json_writes
+    )
+    write_json(
+        config.output_root / "ws_tagging" / f"{run_id}_ws_tagging_summary.json",
+        ws_tagging_summary,
         validate_reload=config.validate_json_writes
     )
 
@@ -60,7 +66,14 @@ def main():
         case_slug = make_source_slug(judgment_path)
         write_text(config.output_root / "extracted_text" / f"{run_id}_{case_slug}_text.txt", judgment_text)
 
-        calibration = run_calibration(ws_text, judgment_text, dictionary, calibration_prompt, llm_client)
+        calibration = run_calibration(
+            ws_text,
+            judgment_text,
+            dictionary,
+            ws_tagging_summary,
+            calibration_prompt,
+            llm_client
+        )
         write_json(
             config.output_root / "calibration_raw" / f"{run_id}_{case_slug}_calibration_raw.json",
             calibration,

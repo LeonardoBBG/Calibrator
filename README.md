@@ -41,6 +41,10 @@ The WS statement and controlled dictionary do not vary across a batch. They are 
 
 The notebook prompts for `OPENAI_API_KEY` when `RUN_LLM = True` and the key is not already set.
 
+## WS Baseline
+
+WS tagging is not just a review artifact. The pipeline saves the full WS tagging output and also derives a compact WS tagging summary. That summary is passed into every judgment calibration call as `WS_TAGGING_SUMMARY_JSON`, so each judgment is calibrated against the same fixed WS/theme baseline.
+
 ## Model Temperature
 
 The default configuration uses `temperature = 0.0` for models that support it. This is intentional for stable JSON calibration.
