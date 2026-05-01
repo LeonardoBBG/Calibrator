@@ -117,6 +117,14 @@ class LLMClient:
                     fallback_body,
                     {"Authorization": f"Bearer {api_key}"}
                 )
+            if "temperature" in message and "Unsupported value" in message:
+                fallback_body = dict(request_body)
+                fallback_body.pop("temperature", None)
+                return self._post_json(
+                    "https://api.openai.com/v1/chat/completions",
+                    fallback_body,
+                    {"Authorization": f"Bearer {api_key}"}
+                )
             raise
 
     def _anthropic_complete(self, system_prompt: str, user_payload: Dict) -> Dict:
