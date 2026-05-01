@@ -30,4 +30,13 @@ pip install -r requirements.txt
 
 Open `pipeline.ipynb`, set the execution controls in the first code cell, and run from the top.
 
+## Judgment Input Modes
+
+The notebook supports two flows:
+
+- `RUN_MODE = "debug"` processes one explicit judgment file from `DEBUG_JUDGMENT_PATH`.
+- `RUN_MODE = "batch"` processes every `*.pdf` in `BATCH_JUDGMENTS_DIR`.
+
+The WS statement and controlled dictionary do not vary across a batch. They are loaded once, and WS tagging is run once. The per-judgment loop only extracts each judgment, runs calibration/repair/compression, and saves outputs using the original judgment filename stem.
+
 The notebook prompts for `OPENAI_API_KEY` when `RUN_LLM = True` and the key is not already set.

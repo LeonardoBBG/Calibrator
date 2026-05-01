@@ -199,6 +199,31 @@ def test_llm_cache():
     assert client.calls == 1
     print("LLM cache test passed")
 
+def test_judgment_path_selection():
+    """Test debug and batch judgment path selection."""
+    import tempfile
+    from .config import Config
+    from .io_utils import make_run_id
+
+    config = Config.default(make_run_id())
+    config.run_mode = "debug"
+    assert config.selected_judgment_paths() == [config.judgment_path]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        batch_dir = Path(temp_dir)
+        second = batch_dir / "b_second.pdf"
+        first = batch_dir / "a_first.pdf"
+        ignored = batch_dir / "notes.txt"
+        second.write_text("", encoding="utf-8")
+        first.write_text("", encoding="utf-8")
+        ignored.write_text("", encoding="utf-8")
+
+        config.run_mode = "batch"
+        config.judgments_dir = batch_dir
+        assert config.selected_judgment_paths() == [first, second]
+
+    print("Judgment path selection test passed")
+
 if __name__ == "__main__":
     test_dictionary()
     test_fake_calibration()
@@ -208,4 +233,5 @@ if __name__ == "__main__":
     test_invalid_cross_ref()
     test_json_reload()
     test_llm_cache()
+    test_judgment_path_selection()
     print("All tests passed!")

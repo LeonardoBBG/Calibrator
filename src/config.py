@@ -1,11 +1,14 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import List
 
 @dataclass
 class Config:
     project_root: Path
     ws_path: Path
     judgment_path: Path
+    judgments_dir: Path
+    run_mode: str
     dictionary_path: Path
     ws_tagging_prompt_path: Path
     calibration_prompt_path: Path
@@ -24,6 +27,14 @@ class Config:
     debug: bool
     run_id: str
 
+    def selected_judgment_paths(self) -> List[Path]:
+        """Return judgment PDFs for the configured run mode."""
+        if self.run_mode == "debug":
+            return [self.judgment_path]
+        if self.run_mode == "batch":
+            return sorted(self.judgments_dir.glob("*.pdf"))
+        raise ValueError("run_mode must be 'debug' or 'batch'")
+
     @classmethod
     def default(cls, run_id: str) -> 'Config':
         project_root = Path("/home/hello/Projects/Calibrator")
@@ -31,6 +42,8 @@ class Config:
             project_root=project_root,
             ws_path=project_root / "input" / "ws" / "witness_statement.pdf",
             judgment_path=project_root / "input" / "judgments" / "Mr_B_Burke_v_Thomas_Contracting_Ltd_and_Thomas_Plant_Hire_Ltd_-_2414977_2018_-_Reserved.pdf",
+            judgments_dir=project_root / "input" / "judgments",
+            run_mode="debug",
             dictionary_path=project_root / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_2_final.json",
             ws_tagging_prompt_path=project_root / "input" / "prompts" / "prompt",
             calibration_prompt_path=project_root / "input" / "prompts" / "calibration_prompt.txt",

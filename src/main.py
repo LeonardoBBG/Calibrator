@@ -18,14 +18,9 @@ def main():
 
     ensure_dirs(config)
 
-    # Load texts
+    # Load shared inputs once. These do not vary across judgments in a batch.
     ws_text = load_text(config.ws_path, config.cache_root / "text", config.cache_enabled)
-    judgment_text = load_text(config.judgment_path, config.cache_root / "text", config.cache_enabled)
-
-    # Save extracted texts
-    case_slug = make_source_slug(config.judgment_path)
     write_text(config.output_root / "extracted_text" / f"{run_id}_ws_text.txt", ws_text)
-    write_text(config.output_root / "extracted_text" / f"{run_id}_{case_slug}_text.txt", judgment_text)
 
     # Load dictionary and prompts
     dictionary = load_dictionary(config.dictionary_path)
@@ -53,66 +48,78 @@ def main():
         validate_reload=config.validate_json_writes
     )
 
-    # Run calibration
-    calibration = run_calibration(ws_text, judgment_text, dictionary, calibration_prompt, llm_client)
-    write_json(
-        config.output_root / "calibration_raw" / f"{run_id}_{case_slug}_calibration_raw.json",
-        calibration,
-        validate_reload=config.validate_json_writes
-    )
-
-    # Validate
     validation_context = CalibrationValidationContext.from_dictionary(dictionary)
-    errors = validate_calibration_output(calibration, context=validation_context)
-    validated_calibration = calibration
-    repair_attempts = 0
+    judgment_paths = config.selected_judgment_paths()
+    if not judgment_paths:
+        raise ValueError(f"No judgment PDFs found for run_mode={config.run_mode}")
 
-    while errors and repair_attempts < config.max_repair_attempts:
-        repair_attempts += 1
+    summaries = []
+    for judgment_path in judgment_paths:
+        judgment_text = load_text(judgment_path, config.cache_root / "text", config.cache_enabled)
+        case_slug = make_source_slug(judgment_path)
+        write_text(config.output_root / "extracted_text" / f"{run_id}_{case_slug}_text.txt", judgment_text)
+
+        calibration = run_calibration(ws_text, judgment_text, dictionary, calibration_prompt, llm_client)
         write_json(
-            config.output_root / "calibration_repaired" / f"{run_id}_{case_slug}_repair_attempt_{repair_attempts}.json",
+            config.output_root / "calibration_raw" / f"{run_id}_{case_slug}_calibration_raw.json",
+            calibration,
+            validate_reload=config.validate_json_writes
+        )
+
+        errors = validate_calibration_output(calibration, context=validation_context)
+        validated_calibration = calibration
+        repair_attempts = 0
+
+        while errors and repair_attempts < config.max_repair_attempts:
+            repair_attempts += 1
+            write_json(
+                config.output_root / "calibration_repaired" / f"{run_id}_{case_slug}_repair_attempt_{repair_attempts}.json",
+                validated_calibration,
+                validate_reload=config.validate_json_writes
+            )
+            write_json(
+                config.output_root / "calibration_repaired" / f"{run_id}_{case_slug}_validation_errors_attempt_{repair_attempts}.json",
+                errors,
+                validate_reload=config.validate_json_writes
+            )
+            validated_calibration = repair_calibration_output(validated_calibration, errors, dictionary, repair_prompt, llm_client)
+            errors = validate_calibration_output(validated_calibration, context=validation_context)
+
+        if errors:
+            raise ValueError(
+                f"Calibration validation failed for {judgment_path.name} "
+                f"after {config.max_repair_attempts} attempts"
+            )
+
+        write_json(
+            config.output_root / "calibration_validated" / f"{run_id}_{case_slug}_calibration_validated.json",
             validated_calibration,
             validate_reload=config.validate_json_writes
         )
+
+        reinforcement_plan = run_compression(validated_calibration, dictionary, compression_prompt, llm_client)
         write_json(
-            config.output_root / "calibration_repaired" / f"{run_id}_{case_slug}_validation_errors_attempt_{repair_attempts}.json",
-            errors,
+            config.output_root / "compression" / f"{run_id}_{case_slug}_reinforcement_plan.json",
+            reinforcement_plan,
             validate_reload=config.validate_json_writes
         )
-        validated_calibration = repair_calibration_output(validated_calibration, errors, dictionary, repair_prompt, llm_client)
-        errors = validate_calibration_output(validated_calibration, context=validation_context)
 
-    if errors:
-        raise ValueError(f"Calibration validation failed after {config.max_repair_attempts} attempts")
+        summaries.append({
+            "judgment": judgment_path.name,
+            "case": validated_calibration.get("case_metadata", {}).get("case_name", "Unknown"),
+            "signals": len(validated_calibration.get("judgment_signals", [])),
+            "repair_attempts": repair_attempts,
+            "clusters": len(reinforcement_plan.get("compressed_reinforcement_plan", []))
+        })
 
-    write_json(
-        config.output_root / "calibration_validated" / f"{run_id}_{case_slug}_calibration_validated.json",
-        validated_calibration,
-        validate_reload=config.validate_json_writes
-    )
-
-    # Run compression
-    reinforcement_plan = run_compression(validated_calibration, dictionary, compression_prompt, llm_client)
-    write_json(
-        config.output_root / "compression" / f"{run_id}_{case_slug}_reinforcement_plan.json",
-        reinforcement_plan,
-        validate_reload=config.validate_json_writes
-    )
-
-    # Print summary
-    case_name = validated_calibration.get("case_metadata", {}).get("case_name", "Unknown")
-    num_signals = len(validated_calibration.get("judgment_signals", []))
-    num_clusters = len(reinforcement_plan.get("compressed_reinforcement_plan", []))
-    print(f"Case: {case_name}")
-    print(f"Judgment signals: {num_signals}")
-    print(f"Validation errors repaired: {repair_attempts}")
-    print(f"Compressed clusters: {num_clusters}")
-    print("Output files:")
-    print(f"  Extracted WS: {config.output_root / 'extracted_text' / f'{run_id}_ws_text.txt'}")
-    print(f"  Extracted Judgment: {config.output_root / 'extracted_text' / f'{run_id}_{case_slug}_text.txt'}")
-    print(f"  Raw Calibration: {config.output_root / 'calibration_raw' / f'{run_id}_{case_slug}_calibration_raw.json'}")
-    print(f"  Validated Calibration: {config.output_root / 'calibration_validated' / f'{run_id}_{case_slug}_calibration_validated.json'}")
-    print(f"  Reinforcement Plan: {config.output_root / 'compression' / f'{run_id}_{case_slug}_reinforcement_plan.json'}")
+    print(f"Run mode: {config.run_mode}")
+    print(f"Judgments processed: {len(summaries)}")
+    for summary in summaries:
+        print(f"Judgment: {summary['judgment']}")
+        print(f"  Case: {summary['case']}")
+        print(f"  Judgment signals: {summary['signals']}")
+        print(f"  Validation errors repaired: {summary['repair_attempts']}")
+        print(f"  Compressed clusters: {summary['clusters']}")
 
 if __name__ == "__main__":
     main()
