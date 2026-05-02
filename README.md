@@ -30,6 +30,8 @@ pip install -r requirements.txt
 
 Open `pipeline.ipynb`, set the execution controls in the first code cell, and run from the top.
 
+The notebook has explicit input bounds. Judgments above `WARN_JUDGMENT_CHARS` print a token-use warning; judgments above `MAX_JUDGMENT_CHARS` stop before making the calibration API call.
+
 ## Judgment Input Modes
 
 The notebook supports two flows:
