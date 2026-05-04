@@ -6,6 +6,8 @@ from typing import Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
+
 class LLMClient:
     def __init__(
         self,
@@ -80,14 +82,15 @@ class LLMClient:
                 },
                 {
                     "role": "user",
-                    "content": json.dumps(user_payload, ensure_ascii=False)
+                    "content": json.dumps(user_payload, ensure_ascii=False, separators=(',', ':'))
                 }
             ],
-            "temperature": self.temperature,
             "max_completion_tokens": self.max_tokens,
             "response_format": {"type": "json_object"},
             "store": False
         }
+        if self.require_temperature_support:
+            request_body["temperature"] = self.temperature
         response = self._post_openai_chat_completion(request_body, api_key)
 
         try:
@@ -165,19 +168,29 @@ class LLMClient:
         }
         request = Request(url, data=payload, headers=request_headers, method="POST")
         try:
-            with urlopen(request, timeout=120) as response:
+            with urlopen(request, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS) as response:
                 response_body = response.read().decode('utf-8')
         except HTTPError as exc:
             error_body = exc.read().decode('utf-8', errors='replace')
-            if exc.code == 400 and "invalid model ID" in error_body:
+            if exc.code == 400 and (
+                "invalid model ID" in error_body
+                or "does not exist" in error_body
+                or "you do not have access" in error_body
+            ):
                 raise RuntimeError(
-                    f"OpenAI rejected model '{self.model}' as an invalid model ID. "
+                    f"OpenAI rejected model '{self.model}' as an invalid or inaccessible model ID. "
                     "Set MODEL_NAME in the first notebook cell to a valid OpenAI model "
                     "that supports Chat Completions, such as 'gpt-4.1-mini'."
                 ) from exc
             raise RuntimeError(f"API request failed with HTTP {exc.code}: {error_body}") from exc
         except URLError as exc:
             raise RuntimeError(f"API request failed: {exc.reason}") from exc
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"API request timed out after {DEFAULT_REQUEST_TIMEOUT_SECONDS} seconds. "
+                "For large calibration inputs, reduce input size, use a faster model, or "
+                "increase DEFAULT_REQUEST_TIMEOUT_SECONDS in src/llm_client.py."
+            ) from exc
         return json.loads(response_body)
 
     def _parse_json_content(self, content: str) -> Dict:

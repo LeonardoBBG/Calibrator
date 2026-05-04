@@ -10,7 +10,10 @@ from .llm_client import LLMClient
 from .calibration_runner import run_calibration
 from .validators import CalibrationValidationContext, validate_calibration_output
 from .repair_runner import repair_calibration_output
-from .compression_runner import run_compression
+from .compression_runner import count_reinforcement_clusters, run_compression
+from .outcome_aggregation import aggregate_outcome_optimized_cases
+from .outcome_runner import repair_outcome_optimization, run_outcome_optimization
+from .outcome_validators import validate_outcome_optimized_calibration
 
 def main():
     run_id = make_run_id()
@@ -29,6 +32,8 @@ def main():
     calibration_prompt = read_text_file(config.calibration_prompt_path)
     compression_prompt = read_text_file(config.compression_prompt_path)
     repair_prompt = read_text_file(config.repair_prompt_path)
+    outcome_optimization_prompt = read_text_file(config.outcome_optimization_prompt_path)
+    outcome_repair_prompt = read_text_file(config.outcome_repair_prompt_path)
 
     # Instantiate LLM
     llm_client = LLMClient(
@@ -61,6 +66,7 @@ def main():
         raise ValueError(f"No judgment PDFs found for run_mode={config.run_mode}")
 
     summaries = []
+    outcome_optimized_cases = []
     for judgment_path in judgment_paths:
         judgment_text = load_text(judgment_path, config.cache_root / "text", config.cache_enabled)
         case_slug = make_source_slug(judgment_path)
@@ -133,13 +139,57 @@ def main():
             validate_reload=config.validate_json_writes
         )
 
+        outcome_optimized = run_outcome_optimization(
+            validated_calibration,
+            outcome_optimization_prompt,
+            llm_client
+        )
+        outcome_errors = validate_outcome_optimized_calibration(
+            outcome_optimized,
+            context=validation_context
+        )
+        outcome_repair_attempts = 0
+        while outcome_errors and outcome_repair_attempts < config.max_outcome_repair_attempts:
+            outcome_repair_attempts += 1
+            outcome_optimized = repair_outcome_optimization(
+                outcome_optimized,
+                outcome_errors,
+                outcome_repair_prompt,
+                llm_client
+            )
+            outcome_errors = validate_outcome_optimized_calibration(
+                outcome_optimized,
+                context=validation_context
+            )
+        if outcome_errors:
+            write_json(
+                config.output_root / "human_review_queue" / f"{run_id}_{case_slug}_outcome_validation_errors.json",
+                outcome_errors,
+                validate_reload=config.validate_json_writes
+            )
+            raise ValueError(f"Outcome optimization validation failed for {judgment_path.name}")
+        write_json(
+            config.output_root / "outcome_optimized" / f"{run_id}_{case_slug}_outcome_optimized.json",
+            outcome_optimized,
+            validate_reload=config.validate_json_writes
+        )
+        outcome_optimized_cases.append(outcome_optimized)
+
         summaries.append({
             "judgment": judgment_path.name,
             "case": validated_calibration.get("case_metadata", {}).get("case_name", "Unknown"),
             "signals": len(validated_calibration.get("judgment_signals", [])),
             "repair_attempts": repair_attempts,
-            "clusters": len(reinforcement_plan.get("compressed_reinforcement_plan", []))
+            "clusters": count_reinforcement_clusters(reinforcement_plan)
         })
+
+    if outcome_optimized_cases:
+        aggregation = aggregate_outcome_optimized_cases(outcome_optimized_cases, dictionary)
+        write_json(
+            config.output_root / "outcome_aggregation" / f"{run_id}_outcome_aggregation.json",
+            aggregation,
+            validate_reload=config.validate_json_writes
+        )
 
     print(f"Run mode: {config.run_mode}")
     print(f"Judgments processed: {len(summaries)}")

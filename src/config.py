@@ -19,6 +19,8 @@ class Config:
     calibration_prompt_path: Path
     compression_prompt_path: Path
     repair_prompt_path: Path
+    outcome_optimization_prompt_path: Path
+    outcome_repair_prompt_path: Path
     output_root: Path
     cache_root: Path
     model_name: str
@@ -27,6 +29,7 @@ class Config:
     require_temperature_support: bool
     max_tokens: int
     max_repair_attempts: int
+    max_outcome_repair_attempts: int
     cache_enabled: bool
     validate_json_writes: bool
     ocr_enabled: bool
@@ -55,6 +58,8 @@ class Config:
             calibration_prompt_path=project_root / "input" / "prompts" / "calibration_prompt.txt",
             compression_prompt_path=project_root / "input" / "prompts" / "compression_prompt.txt",
             repair_prompt_path=project_root / "input" / "prompts" / "repair_prompt.txt",
+            outcome_optimization_prompt_path=project_root / "input" / "prompts" / "outcome_optimization_prompt.txt",
+            outcome_repair_prompt_path=project_root / "input" / "prompts" / "outcome_repair_prompt.txt",
             output_root=project_root / "output",
             cache_root=project_root / "output" / "cache",
             model_name="gpt-4.1-mini",
@@ -63,6 +68,7 @@ class Config:
             require_temperature_support=True,
             max_tokens=12000,
             max_repair_attempts=3,
+            max_outcome_repair_attempts=1,
             cache_enabled=True,
             validate_json_writes=False,
             ocr_enabled=False,

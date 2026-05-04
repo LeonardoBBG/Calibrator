@@ -13,10 +13,36 @@ ALLOWED_ACTIONS = {
     "REVIEW_MANUALLY"
 }
 
+COMPACT_LLM_THEME_FIELDS = (
+    "theme_id",
+    "theme_priority",
+    "theme_name",
+    "definition",
+    "include_when",
+    "exclude_when",
+    "duplication_guardrail",
+    "permitted_actions",
+    "preferred_ws_destination",
+)
+
 def load_dictionary(dictionary_path: Path) -> Dict:
     """Load the WS theme dictionary from JSON."""
     with open(dictionary_path, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+def compact_dictionary_for_llm(dictionary: Dict) -> Dict:
+    """Return the dictionary fields needed by repeated LLM mapping calls."""
+    compact_themes = []
+    for theme in dictionary.get('ws_theme_dictionary', []):
+        compact_themes.append({
+            field: theme[field]
+            for field in COMPACT_LLM_THEME_FIELDS
+            if field in theme
+        })
+    return {
+        "global_mapping_rules": dictionary.get("global_mapping_rules", {}),
+        "ws_theme_dictionary": compact_themes,
+    }
 
 def get_theme_ids(dictionary: Dict) -> Set[str]:
     """Get set of all theme_ids."""

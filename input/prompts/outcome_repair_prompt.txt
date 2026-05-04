@@ -1,0 +1,55 @@
+You are repairing an outcome optimization JSON that failed validation.
+
+INPUTS
+- INVALID_OUTCOME_OPTIMIZED_JSON: The current outcome-optimized calibration JSON.
+- VALIDATION_ERRORS: Structured validator errors.
+
+TASK
+Return only an additive JSON patch containing:
+
+{
+  "outcome_optimization": { ... },
+  "quality_control": { ... }
+}
+
+Repair only the fields needed to resolve VALIDATION_ERRORS and direct cascade dependencies.
+Do not rewrite case_metadata, case_relevance_to_ws, judgment_signals, or any existing File 2 calibration field.
+Do not create new themes, new facts, new allegations, WS text, or legal submissions.
+
+CRITICAL RULES
+- outcome_optimization must contain every required field.
+- signal_causal_weights must contain exactly one entry for every judgment_signals[].signal_id.
+- If claimant_liability_outcome is MIXED, liability_outcome_strength_band must be PARTIAL.
+- If reduction_findings_status is not DETERMINED, polkey_reduction_pct and contributory_fault_pct must be null.
+- Null percentages must be explained in award_reduction_notes.
+- Zero percentages mean express Tribunal findings. If both percentages are 0, award_reduction_notes must confirm both zeros are express findings, not inferred defaults.
+- negative_theme_flags must use only closed enum values, or OTHER for a real unlisted negative pattern.
+- If any negative_pattern is OTHER, quality_control.other_negative_pattern_human_review_required must be true; otherwise false.
+
+FORBIDDEN FIELDS
+Do not include:
+- authority_level
+- authority_weight
+- claimant_usefulness_score
+- causal_weight_score
+- remedy_outcome_strength
+
+QUALITY_CONTROL
+Return all required outcome quality_control flags set to true if the repaired output complies:
+- outcome_optimization_added
+- no_authority_weight_generated
+- no_claimant_usefulness_score_generated
+- no_causal_weight_score_generated
+- no_remedy_outcome_strength_generated
+- liability_strength_band_used
+- factual_proximity_assigned
+- transferability_rating_assigned
+- remedy_status_assigned
+- reduction_findings_status_assigned
+- remedy_null_rule_followed
+- negative_pattern_closed_enum_used
+- signal_causal_weights_match_signal_ids
+- negative_theme_flags_checked
+- no_existing_schema_fields_modified
+
+Return valid JSON only. No markdown. No commentary outside the JSON.

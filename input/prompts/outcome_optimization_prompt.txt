@@ -1,0 +1,143 @@
+You are adding an outcome_optimization layer to an already validated Employment Tribunal calibration JSON.
+
+INPUT
+- VALIDATED_CALIBRATION_JSON: Existing validated File 2 calibration JSON. Treat all existing fields as frozen.
+
+CORE RULE
+Return only an additive JSON patch containing:
+
+{
+  "outcome_optimization": { ... },
+  "quality_control": { ... }
+}
+
+Do not return case_metadata, case_relevance_to_ws, judgment_signals, or any rewritten existing field.
+Do not alter, rename, remove, or move existing File 2 fields.
+Do not create new themes, new facts, new allegations, WS text, or legal submissions.
+
+The LLM must output categorical and explanatory fields only. Do not output numeric composite scores.
+
+FORBIDDEN FIELDS
+Do not include any of these fields anywhere in outcome_optimization:
+- authority_level
+- authority_weight
+- claimant_usefulness_score
+- causal_weight_score
+- remedy_outcome_strength
+
+OUTCOME_OPTIMIZATION SCHEMA
+
+outcome_optimization must contain exactly:
+
+- factual_proximity: one of HIGH, MEDIUM, LOW, ANALOGY_ONLY, UNKNOWN.
+- transferability_rating: one of HIGH, MEDIUM, LOW, ANALOGY_ONLY, NON_TRANSFERABLE, UNKNOWN.
+- claimant_liability_outcome: one of WIN, LOSS, PARTIAL, MIXED, UNKNOWN.
+- liability_outcome_strength_band: one of STRONG_WIN, MODERATE_WIN, NARROW_WIN, PARTIAL, LOSS, UNKNOWN.
+- remedy_status: one of COMPLETED, RESERVED, OUTSTANDING, NOT_ADDRESSED, UNKNOWN.
+- reduction_findings_status: one of DETERMINED, NOT_DETERMINED, NOT_ADDRESSED, UNKNOWN.
+- polkey_reduction_pct: number from 0 to 100, or null.
+- contributory_fault_pct: number from 0 to 100, or null.
+- award_reduction_notes: string, at least 20 characters.
+- signal_causal_weights: array with exactly one object for every VALIDATED_CALIBRATION_JSON.judgment_signals[].signal_id.
+- negative_theme_flags: array, empty if none.
+- optimization_notes: string, at least 20 characters.
+
+FACTUAL PROXIMITY
+- HIGH: same or very similar factual setting, such as dismissal for alleged work avoidance, technical system activity, ticketing, logs, queue work, productivity, or system-based allegations.
+- MEDIUM: different factual detail but similar employment context and misconduct/investigation structure.
+- LOW: different factual setting with only broad procedural or evidential overlap.
+- ANALOGY_ONLY: factually different but structurally useful by analogy. Use where underlying conduct differs materially but investigation, procedure, evidence, explanation-testing, or appeal reasoning maps onto existing WS themes.
+- UNKNOWN: insufficient information.
+
+TRANSFERABILITY RATING
+- HIGH: directly usable for reinforcing existing WS themes with strong structural fit.
+- MEDIUM: materially useful but requires careful analogical framing.
+- LOW: limited use for narrow or peripheral points.
+- ANALOGY_ONLY: structural analogy only; do not imply factual similarity.
+- NON_TRANSFERABLE: quarantine, not usable for WS reinforcement.
+- UNKNOWN: insufficient information.
+
+LIABILITY CONSISTENCY
+- If claimant_liability_outcome is WIN, liability_outcome_strength_band must be STRONG_WIN, MODERATE_WIN, or NARROW_WIN.
+- If claimant_liability_outcome is LOSS, liability_outcome_strength_band must be LOSS.
+- If claimant_liability_outcome is PARTIAL, liability_outcome_strength_band must be PARTIAL.
+- If claimant_liability_outcome is MIXED, liability_outcome_strength_band must be PARTIAL.
+- If claimant_liability_outcome is UNKNOWN, liability_outcome_strength_band must be UNKNOWN.
+
+REMEDY RULES
+remedy_status tracks whether remedy quantum has been determined.
+reduction_findings_status tracks whether Polkey and/or contributory fault reduction findings have been expressly determined in this judgment.
+
+- If reduction_findings_status is NOT_DETERMINED, NOT_ADDRESSED, or UNKNOWN: polkey_reduction_pct and contributory_fault_pct must both be null.
+- If reduction_findings_status is DETERMINED: each percentage may be numeric where expressly found, including 0, or null where that specific reduction was not addressed.
+- Null means not determined, not addressed, unknown, or no express percentage. Do not infer zero.
+- Zero means the Tribunal expressly found no reduction. If either percentage is 0, award_reduction_notes must make clear that zero is an express finding.
+- If reduction_findings_status is DETERMINED and both percentages are 0, award_reduction_notes must confirm both zeros are express Tribunal findings and not inferred defaults.
+- If any percentage is null, award_reduction_notes must explain why it is null.
+
+SIGNAL CAUSAL WEIGHTS
+signal_causal_weights must contain exactly one object per judgment signal. Each object must contain:
+
+- signal_id: exactly one existing VALIDATED_CALIBRATION_JSON.judgment_signals[].signal_id.
+- causal_weight: one of DECISIVE, CONTRIBUTING, PERIPHERAL, NEUTRAL, NEGATIVE, UNKNOWN.
+- causal_weight_reason: string, at least 20 characters, tied to the Tribunal's actual reasoning.
+
+Causal weight guidance:
+- DECISIVE: primary reason for the outcome; significant reasoning or conclusive language.
+- CONTRIBUTING: material supporting reason for the outcome.
+- PERIPHERAL: mentioned but did not materially affect the outcome.
+- NEUTRAL: no directional causal weight.
+- NEGATIVE: associated with a finding adverse to claimant-side use.
+- UNKNOWN: cannot be determined.
+
+NEGATIVE THEME FLAGS
+negative_theme_flags must be an array. Return [] if none.
+Each flag must contain:
+
+- theme_id: existing T01-T20 theme_id.
+- negative_pattern: one of:
+  EXPLANATION_RAISED_LATE,
+  EXPLANATION_INCONSISTENT,
+  CLAIMANT_ADMITTED_CORE_MISCONDUCT,
+  CLAIMANT_FAILED_TO_ENGAGE,
+  CLAIMANT_CREDIBILITY_REJECTED,
+  EMPLOYER_HAD_STRONG_CONTEMPORANEOUS_EVIDENCE,
+  EMPLOYER_INVESTIGATION_FOUND_REASONABLE,
+  APPEAL_CURED_DEFECT,
+  PROCEDURAL_ONLY_WIN_LOW_REMEDY,
+  HIGH_POLKEY_REDUCTION,
+  HIGH_CONTRIBUTORY_FAULT,
+  DISMISSAL_WITHIN_REASONABLE_RESPONSES,
+  NO_MATERIAL_PROCEDURAL_PREJUDICE,
+  CLEAN_RECORD_GIVEN_LOW_WEIGHT,
+  COMPARATOR_ARGUMENT_REJECTED,
+  TECHNICAL_OR_SYSTEM_EXPLANATION_REJECTED,
+  ALTERNATIVE_SANCTION_NOT_REQUIRED,
+  OTHER.
+- severity: LOW, MEDIUM, or HIGH.
+- reason: string, at least 20 characters, evidence-based and tied to judgment content.
+
+Use OTHER only for a real negative pattern that does not fit the closed enum. If any OTHER is used, set quality_control.other_negative_pattern_human_review_required to true.
+
+QUALITY_CONTROL PATCH
+quality_control must contain these flags set to true:
+
+- outcome_optimization_added
+- no_authority_weight_generated
+- no_claimant_usefulness_score_generated
+- no_causal_weight_score_generated
+- no_remedy_outcome_strength_generated
+- liability_strength_band_used
+- factual_proximity_assigned
+- transferability_rating_assigned
+- remedy_status_assigned
+- reduction_findings_status_assigned
+- remedy_null_rule_followed
+- negative_pattern_closed_enum_used
+- signal_causal_weights_match_signal_ids
+- negative_theme_flags_checked
+- no_existing_schema_fields_modified
+
+Set other_negative_pattern_human_review_required to true if any negative_pattern is OTHER. Otherwise set it to false.
+
+Return valid JSON only. No markdown. No commentary outside the JSON.

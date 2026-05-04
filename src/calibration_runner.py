@@ -1,5 +1,10 @@
 from typing import Dict, TYPE_CHECKING
 
+try:
+    from dictionary_loader import compact_dictionary_for_llm
+except ImportError:
+    from src.dictionary_loader import compact_dictionary_for_llm
+
 if TYPE_CHECKING:
     from llm_client import LLMClient
 
@@ -15,7 +20,7 @@ def run_calibration(
     payload = {
         "WS_TEXT": ws_text,
         "PDF_TEXT": judgment_text,
-        "WS_THEME_DICTIONARY_JSON": dictionary,
+        "WS_THEME_DICTIONARY_JSON": compact_dictionary_for_llm(dictionary),
         "WS_TAGGING_SUMMARY_JSON": ws_tagging_summary
     }
     # The prompt is the system prompt, payload as user message

@@ -16,6 +16,9 @@ def ensure_dirs(config: "Config") -> None:
         config.output_root / "calibration_repaired",
         config.output_root / "ws_tagging",
         config.output_root / "compression",
+        config.output_root / "outcome_optimized",
+        config.output_root / "outcome_aggregation",
+        config.output_root / "human_review_queue",
         config.cache_root / "text",
         config.cache_root / "llm",
         config.output_root / "logs"
