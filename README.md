@@ -47,6 +47,8 @@ The notebook prompts for `OPENAI_API_KEY` when `RUN_LLM = True` and the key is n
 
 WS tagging is not just a review artifact. The pipeline saves the full WS tagging output and also derives a compact WS tagging summary. That summary is passed into every judgment calibration call as `WS_TAGGING_SUMMARY_JSON`, so each judgment is calibrated against the same fixed WS/theme baseline.
 
+`Config.run_ws` controls how that baseline is prepared. With `run_ws=True`, the pipeline runs WS tagging for the current run and writes both `output/ws_tagging/{run_id}_ws_tagging.json` and `output/ws_tagging/{run_id}_ws_tagging_summary.json`. With `run_ws=False`, the pipeline does not create new WS tagging files; it loads the existing summary from `Config.ws_tagging_summary_path` and uses that for downstream calibration.
+
 The summary's `theme_presence_by_id` is authoritative for calibration. `recommended_action_by_id` is advisory only; calibration and repair must still use the dictionary's permitted actions and the baseline coupling rules. Automated validation rejects reinforcement/add actions for `ABSENT` or `RISK_ONLY` baselines, rejects `PRESENT` WS presence for those baselines, and sends `LATENT` baselines to review rather than reinforcement.
 
 ## Repair
@@ -57,7 +59,9 @@ Repair runs only after calibration validation fails. It is a constructive LLM re
 
 Text extraction is cached by source file path, size, and modified time. LLM responses are cached by model, prompt, payload, temperature, and token settings, so a WS, dictionary, prompt, or judgment change creates a different cache key.
 
-Outputs accumulate under `output/` by artifact type: `ws_tagging/`, `calibration_raw/`, `calibration_repaired/`, `calibration_validated/`, and `compression/`. Batch mode currently produces one validated calibration and one reinforcement plan per judgment; there is no cross-judgment aggregation layer yet.
+Outputs accumulate under `output/` by artifact type: `extracted_text/`, `ws_tagging/`, `calibration_raw/`, `calibration_repaired/`, `calibration_validated/`, `compression/`, `outcome_optimized/`, `outcome_aggregation/`, `theme_store/`, and `human_review_queue/`. Batch mode produces per-judgment calibration, compression, and outcome artifacts, plus batch-level outcome aggregation and theme-store review exports when outcome optimization succeeds.
+
+`output/theme_store/{run_id}/` is deterministic. It uses `outcome_aggregation` as the theme index and `outcome_optimized` case files as the match items, then writes `theme_store.json`, `theme_summary.csv`, `review_queue.csv`, and `top_matches_per_theme.csv`. It groups each theme by action lane before subtheme, so `T17_COMPARATOR_TREATMENT / REINFORCE` and `T17_COMPARATOR_TREATMENT / REVIEW_MANUALLY` remain separate review buckets. It does not make any LLM calls.
 
 ## Model Temperature
 

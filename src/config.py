@@ -16,6 +16,8 @@ class Config:
     run_mode: str
     dictionary_path: Path
     ws_tagging_prompt_path: Path
+    run_ws: bool
+    ws_tagging_summary_path: Path
     calibration_prompt_path: Path
     compression_prompt_path: Path
     repair_prompt_path: Path
@@ -55,6 +57,8 @@ class Config:
             run_mode="debug",
             dictionary_path=project_root / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_2_final.json",
             ws_tagging_prompt_path=project_root / "input" / "prompts" / "ws_tagging_prompt.txt",
+            run_ws=True,
+            ws_tagging_summary_path=project_root / "output" / "ws_tagging" / "20260504_141009_ws_tagging_summary.json",
             calibration_prompt_path=project_root / "input" / "prompts" / "calibration_prompt.txt",
             compression_prompt_path=project_root / "input" / "prompts" / "compression_prompt.txt",
             repair_prompt_path=project_root / "input" / "prompts" / "repair_prompt.txt",

@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 from .config import Config
-from .io_utils import ensure_dirs, read_text_file, write_json, write_text, make_run_id, make_source_slug
+from .io_utils import ensure_dirs, read_json, read_text_file, write_json, write_text, make_run_id, make_source_slug
 from .text_extract import load_text
 from .dictionary_loader import load_dictionary, validate_dictionary
 from .dictionary_runner import build_ws_tagging_summary, run_ws_tagging
@@ -14,6 +14,34 @@ from .compression_runner import count_reinforcement_clusters, run_compression
 from .outcome_aggregation import aggregate_outcome_optimized_cases
 from .outcome_runner import repair_outcome_optimization, run_outcome_optimization
 from .outcome_validators import validate_outcome_optimized_calibration
+from .theme_store import build_theme_store, write_theme_store_outputs
+
+def prepare_ws_tagging(config, run_id, ws_text, dictionary, ws_tagging_prompt, llm_client):
+    """Run WS tagging for this run, or load a previously saved WS summary."""
+    if config.run_ws:
+        ws_tagging = run_ws_tagging(ws_text, dictionary, ws_tagging_prompt, llm_client)
+        ws_tagging_summary = build_ws_tagging_summary(ws_tagging)
+        write_json(
+            config.output_root / "ws_tagging" / f"{run_id}_ws_tagging.json",
+            ws_tagging,
+            validate_reload=config.validate_json_writes
+        )
+        write_json(
+            config.output_root / "ws_tagging" / f"{run_id}_ws_tagging_summary.json",
+            ws_tagging_summary,
+            validate_reload=config.validate_json_writes
+        )
+        return ws_tagging_summary
+
+    if not config.ws_tagging_summary_path:
+        raise ValueError("ws_tagging_summary_path is required when run_ws=False")
+
+    if not config.ws_tagging_summary_path.exists():
+        raise FileNotFoundError(
+            f"WS tagging summary path does not exist: {config.ws_tagging_summary_path}"
+        )
+
+    return read_json(config.ws_tagging_summary_path)
 
 def main():
     run_id = make_run_id()
@@ -46,18 +74,13 @@ def main():
         cache_enabled=config.cache_enabled
     )
 
-    # Run the WS tagging prompt against the controlled dictionary.
-    ws_tagging = run_ws_tagging(ws_text, dictionary, ws_tagging_prompt, llm_client)
-    ws_tagging_summary = build_ws_tagging_summary(ws_tagging)
-    write_json(
-        config.output_root / "ws_tagging" / f"{run_id}_ws_tagging.json",
-        ws_tagging,
-        validate_reload=config.validate_json_writes
-    )
-    write_json(
-        config.output_root / "ws_tagging" / f"{run_id}_ws_tagging_summary.json",
-        ws_tagging_summary,
-        validate_reload=config.validate_json_writes
+    ws_tagging_summary = prepare_ws_tagging(
+        config,
+        run_id,
+        ws_text,
+        dictionary,
+        ws_tagging_prompt,
+        llm_client
     )
 
     validation_context = CalibrationValidationContext.from_dictionary(dictionary)
@@ -67,6 +90,7 @@ def main():
 
     summaries = []
     outcome_optimized_cases = []
+    outcome_source_filenames = {}
     for judgment_path in judgment_paths:
         judgment_text = load_text(judgment_path, config.cache_root / "text", config.cache_enabled)
         case_slug = make_source_slug(judgment_path)
@@ -173,6 +197,7 @@ def main():
             outcome_optimized,
             validate_reload=config.validate_json_writes
         )
+        outcome_source_filenames[len(outcome_optimized_cases)] = f"{run_id}_{case_slug}_outcome_optimized.json"
         outcome_optimized_cases.append(outcome_optimized)
 
         summaries.append({
@@ -190,6 +215,8 @@ def main():
             aggregation,
             validate_reload=config.validate_json_writes
         )
+        theme_store_bundle = build_theme_store(aggregation, outcome_optimized_cases, outcome_source_filenames)
+        write_theme_store_outputs(theme_store_bundle, config.output_root / "theme_store" / run_id)
 
     print(f"Run mode: {config.run_mode}")
     print(f"Judgments processed: {len(summaries)}")

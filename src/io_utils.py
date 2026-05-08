@@ -18,6 +18,7 @@ def ensure_dirs(config: "Config") -> None:
         config.output_root / "compression",
         config.output_root / "outcome_optimized",
         config.output_root / "outcome_aggregation",
+        config.output_root / "theme_store",
         config.output_root / "human_review_queue",
         config.cache_root / "text",
         config.cache_root / "llm",
@@ -29,6 +30,11 @@ def ensure_dirs(config: "Config") -> None:
 def read_text_file(path: Path) -> str:
     """Read text file as UTF-8."""
     return path.read_text(encoding='utf-8')
+
+def read_json(path: Path) -> Any:
+    """Read JSON file as UTF-8."""
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 def write_json(path: Path, data: Any, validate_reload: bool = False) -> None:
     """Write dict to JSON file, optionally validate reload."""

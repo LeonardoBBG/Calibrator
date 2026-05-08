@@ -187,16 +187,84 @@ def test_invalid_cross_ref():
 def test_json_reload():
     """Test that written JSON can be reloaded."""
     import tempfile
-    from .io_utils import write_json
+    from .io_utils import read_json, write_json
     data = {"test": "value", "number": 42}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
         temp_path = Path(f.name)
     write_json(temp_path, data)
-    with open(temp_path, 'r') as f:
-        reloaded = json.load(f)
+    reloaded = read_json(temp_path)
     assert reloaded == data
     temp_path.unlink()
     print("JSON reload test passed")
+
+def test_prepare_ws_tagging_loads_existing_summary():
+    """Test run_ws=False loads a prior summary without creating WS output files."""
+    import tempfile
+    from types import SimpleNamespace
+    from .io_utils import write_json
+    from .main import prepare_ws_tagging
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        summary_path = temp_root / "existing_summary.json"
+        expected = {
+            "theme_presence_by_id": {"T01_ROLE_EVOLUTION": "PRESENT"},
+            "recommended_action_by_id": {"T01_ROLE_EVOLUTION": "REINFORCE"},
+        }
+        write_json(summary_path, expected)
+        config = SimpleNamespace(
+            run_ws=False,
+            ws_tagging_summary_path=summary_path,
+            output_root=temp_root / "output",
+            validate_json_writes=True,
+        )
+
+        actual = prepare_ws_tagging(config, "TEST_RUN", "ws text", {}, "prompt", None)
+
+        assert actual == expected
+        assert not (config.output_root / "ws_tagging").exists()
+    print("WS tagging summary load test passed")
+
+def test_prepare_ws_tagging_runs_and_writes_summary():
+    """Test run_ws=True writes exactly the full WS tagging and derived summary."""
+    import tempfile
+    from types import SimpleNamespace
+    from .main import prepare_ws_tagging
+
+    class FakeLLMClient:
+        def complete_json(self, system_prompt, user_payload):
+            return {
+                "theme_mappings": [
+                    {
+                        "mapped_theme_id": "T01_ROLE_EVOLUTION",
+                        "theme_presence": "PRESENT",
+                        "recommended_action": "REINFORCE",
+                        "cross_reference_theme_ids": [],
+                        "mapping_rationale": "Baseline present",
+                    }
+                ]
+            }
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        output_root = temp_root / "output"
+        (output_root / "ws_tagging").mkdir(parents=True)
+        config = SimpleNamespace(
+            run_ws=True,
+            ws_tagging_summary_path=temp_root / "unused.json",
+            output_root=output_root,
+            validate_json_writes=True,
+        )
+
+        summary = prepare_ws_tagging(config, "TEST_RUN", "ws text", {}, "prompt", FakeLLMClient())
+        output_files = sorted(path.name for path in (output_root / "ws_tagging").iterdir())
+
+        assert summary["theme_presence_by_id"] == {"T01_ROLE_EVOLUTION": "PRESENT"}
+        assert output_files == [
+            "TEST_RUN_ws_tagging.json",
+            "TEST_RUN_ws_tagging_summary.json",
+        ]
+    print("WS tagging run/write test passed")
 
 def test_llm_cache():
     """Test that LLM responses are cached by prompt and payload."""
@@ -645,6 +713,110 @@ def test_ws_baseline_validation_rules():
     print("WS baseline validation test passed")
 
 
+def test_theme_store_builds_batch_review_outputs():
+    """Test deterministic theme store exports from aggregation keys and outcome items."""
+    import tempfile
+    from .theme_store import build_theme_store, write_theme_store_outputs
+
+    aggregation = {
+        "theme_strength_matrix": [
+            {
+                "theme_id": "T11_SHORT_NOTICE_PROCEDURAL_PREJUDICE",
+                "theme_name": "Short notice",
+                "net_theme_score": 1.2,
+                "recommendation": "REFRAME",
+            }
+        ]
+    }
+    outcome_case = {
+        "case_metadata": {
+            "case_name": "Test Case",
+            "case_number": "123",
+        },
+        "judgment_signals": [
+            {
+                "signal_id": "JS01",
+                "mapped_theme_id": "T11_SHORT_NOTICE_PROCEDURAL_PREJUDICE",
+                "recommended_action": "REINFORCE",
+                "case_effect": "WIN_DRIVER",
+                "dictionary_match_confidence": "HIGH",
+                "signal_summary": "Invitation lacked specific allegations.",
+                "judgment_references": ["27", "28"],
+                "relevance_to_ws": "Supports preparation prejudice.",
+                "subtheme": "missing_particulars",
+                "factual_hooks": ["no specific allegations"],
+                "legal_functions": ["procedural unfairness"],
+            },
+            {
+                "signal_id": "JS02",
+                "mapped_theme_id": "T11_SHORT_NOTICE_PROCEDURAL_PREJUDICE",
+                "recommended_action": "REINFORCE",
+                "case_effect": "WIN_DRIVER",
+                "dictionary_match_confidence": "HIGH",
+                "signal_summary": "Invitation lacked specific allegations.",
+                "judgment_references": ["27", "28"],
+                "relevance_to_ws": "Duplicate should not become an active second match.",
+                "subtheme": "missing_particulars",
+                "factual_hooks": ["no specific allegations"],
+                "legal_functions": ["procedural unfairness"],
+            },
+            {
+                "signal_id": "JS03",
+                "mapped_theme_id": "T11_SHORT_NOTICE_PROCEDURAL_PREJUDICE",
+                "recommended_action": "REVIEW_MANUALLY",
+                "case_effect": "NEUTRAL_CONTEXT",
+                "dictionary_match_confidence": "HIGH",
+                "signal_summary": "Invitation lacked specific allegations.",
+                "judgment_references": ["27", "28"],
+                "relevance_to_ws": "Same factual point but different action lane should remain separate.",
+                "subtheme": "missing_particulars",
+                "factual_hooks": ["no specific allegations"],
+                "legal_functions": ["procedural unfairness"],
+            },
+        ],
+        "outcome_optimization": {
+            "signal_causal_weights": [
+                {
+                    "signal_id": "JS01",
+                    "causal_weight": "CONTRIBUTING",
+                    "causal_weight_reason": "Material procedural defect.",
+                },
+                {
+                    "signal_id": "JS02",
+                    "causal_weight": "CONTRIBUTING",
+                    "causal_weight_reason": "Duplicate material procedural defect.",
+                },
+                {
+                    "signal_id": "JS03",
+                    "causal_weight": "PERIPHERAL",
+                    "causal_weight_reason": "Manual review version of the same material.",
+                },
+            ]
+        },
+    }
+
+    bundle = build_theme_store(aggregation, [outcome_case], {0: "case_outcome_optimized.json"})
+    theme = bundle["theme_store"]["T11_SHORT_NOTICE_PROCEDURAL_PREJUDICE"]
+    reinforce_matches = theme["action_lanes"]["REINFORCE"]["subthemes"]["missing_particulars"]["matches"]
+    review_matches = theme["action_lanes"]["REVIEW_MANUALLY"]["subthemes"]["missing_particulars"]["matches"]
+
+    assert theme["n_matches"] == 2
+    assert len(bundle["duplicates"]) == 1
+    assert reinforce_matches[0]["rank_score"] == 1.0
+    assert reinforce_matches[0]["source_pointer"] == "judgment paragraphs: 27, 28"
+    assert review_matches[0]["action_lane"] == "REVIEW_MANUALLY"
+    assert bundle["theme_summary"][0]["number_of_matches"] == 2
+    assert bundle["theme_summary"][0]["number_of_action_lanes"] == 2
+    assert len(bundle["review_queue"]) == 2
+    assert len(bundle["top_matches_per_theme"]) == 2
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        paths = write_theme_store_outputs(bundle, Path(temp_dir))
+        for path in paths.values():
+            assert path.exists()
+    print("Theme store export test passed")
+
+
 if __name__ == "__main__":
     test_dictionary()
     test_compact_dictionary_for_llm()
@@ -654,6 +826,8 @@ if __name__ == "__main__":
     test_invalid_action()
     test_invalid_cross_ref()
     test_json_reload()
+    test_prepare_ws_tagging_loads_existing_summary()
+    test_prepare_ws_tagging_runs_and_writes_summary()
     test_llm_cache()
     test_judgment_path_selection()
     test_default_require_temperature_support()
@@ -665,4 +839,5 @@ if __name__ == "__main__":
     test_outcome_validation_rules()
     test_outcome_merge_and_aggregation()
     test_ws_baseline_validation_rules()
+    test_theme_store_builds_batch_review_outputs()
     print("All tests passed!")
