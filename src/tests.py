@@ -197,6 +197,15 @@ def test_json_reload():
     temp_path.unlink()
     print("JSON reload test passed")
 
+def test_run_scope_slug_preserves_single_case_name():
+    """Test run-level artifact naming preserves single-case source identity."""
+    from .io_utils import make_run_scope_slug
+
+    assert make_run_scope_slug("RUN", ["case_a"]) == "RUN_case_a"
+    assert make_run_scope_slug("RUN", ["case_a", "case_b"]) == "RUN_batch_2_cases"
+    assert make_run_scope_slug("RUN", []) == "RUN_no_successful_cases"
+    print("Run scope slug test passed")
+
 def test_prepare_ws_tagging_loads_existing_summary():
     """Test run_ws=False loads a prior summary without creating WS output files."""
     import tempfile
@@ -266,6 +275,40 @@ def test_prepare_ws_tagging_runs_and_writes_summary():
         ]
     print("WS tagging run/write test passed")
 
+def test_record_case_failure_writes_review_artifact():
+    """Test failed cases are captured as human-review artifacts."""
+    import tempfile
+    from types import SimpleNamespace
+    from .main import record_case_failure
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        config = SimpleNamespace(
+            output_root=temp_root / "output",
+            validate_json_writes=True,
+        )
+        (config.output_root / "human_review_queue").mkdir(parents=True)
+        judgment_path = temp_root / "failed_case.pdf"
+        try:
+            raise RuntimeError("simulated failure")
+        except RuntimeError as exc:
+            failure = record_case_failure(
+                config,
+                "TEST_RUN",
+                judgment_path,
+                "failed_case",
+                "calibration",
+                exc,
+            )
+
+        failure_path = config.output_root / "human_review_queue" / "TEST_RUN_failed_case_case_failure.json"
+        assert failure_path.exists()
+        assert failure["judgment"] == "failed_case.pdf"
+        assert failure["failed_stage"] == "calibration"
+        assert failure["error_type"] == "RuntimeError"
+        assert "simulated failure" in failure["error"]
+    print("Case failure artifact test passed")
+
 def test_llm_cache():
     """Test that LLM responses are cached by prompt and payload."""
     import tempfile
@@ -296,6 +339,29 @@ def test_llm_cache():
     assert first == second
     assert client.calls == 1
     print("LLM cache test passed")
+
+def test_llm_timeout_configuration_does_not_affect_cache_key():
+    """Test request timeout is configurable but does not invalidate the response cache."""
+    import tempfile
+    from .llm_client import LLMClient
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base_kwargs = {
+            "provider": "local",
+            "model": "fake",
+            "temperature": 0.0,
+            "max_tokens": 100,
+            "require_temperature_support": True,
+            "cache_dir": Path(temp_dir),
+            "cache_enabled": True,
+        }
+        fast = LLMClient(**base_kwargs, request_timeout_seconds=300)
+        slow = LLMClient(**base_kwargs, request_timeout_seconds=600)
+
+        assert fast.request_timeout_seconds == 300
+        assert slow.request_timeout_seconds == 600
+        assert fast._cache_path("prompt", {"value": 1}) == slow._cache_path("prompt", {"value": 1})
+    print("LLM timeout configuration test passed")
 
 def test_judgment_path_selection():
     """Test debug and batch judgment path selection."""
@@ -826,9 +892,12 @@ if __name__ == "__main__":
     test_invalid_action()
     test_invalid_cross_ref()
     test_json_reload()
+    test_run_scope_slug_preserves_single_case_name()
     test_prepare_ws_tagging_loads_existing_summary()
     test_prepare_ws_tagging_runs_and_writes_summary()
+    test_record_case_failure_writes_review_artifact()
     test_llm_cache()
+    test_llm_timeout_configuration_does_not_affect_cache_key()
     test_judgment_path_selection()
     test_default_require_temperature_support()
     test_openai_request_omits_temperature_when_not_required()

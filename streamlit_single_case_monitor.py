@@ -11,9 +11,18 @@ DEFAULT_CASE_PATH = PROJECT_ROOT / (
     "output/outcome_optimized/"
     "20260504_124953_Mr_P_Pronzynski_v_3663_Transport_-_2413742_2018_-_Judgment_1_outcome_optimized.json"
 )
-DEFAULT_AGGREGATION_PATH = PROJECT_ROOT / "output/outcome_aggregation/20260504_124953_outcome_aggregation.json"
+DEFAULT_AGGREGATION_PATH = PROJECT_ROOT / (
+    "output/outcome_aggregation/"
+    "20260504_124953_Mr_P_Pronzynski_v_3663_Transport_-_2413742_2018_-_Judgment_1_outcome_aggregation.json"
+)
+DEFAULT_THEME_STORE_PATH = PROJECT_ROOT / (
+    "output/theme_store/"
+    "20260504_124953_Mr_P_Pronzynski_v_3663_Transport_-_2413742_2018_-_Judgment_1/"
+    "theme_store.json"
+)
 DEFAULT_CASE_DIR = PROJECT_ROOT / "output/outcome_optimized"
 DEFAULT_AGGREGATION_DIR = PROJECT_ROOT / "output/outcome_aggregation"
+DEFAULT_THEME_STORE_DIR = PROJECT_ROOT / "output/theme_store"
 
 RECOMMENDATION_ORDER = [
     "REINFORCE_PRIMARY",
@@ -80,6 +89,13 @@ def list_json_files(folder_text: str) -> List[Path]:
     return sorted(folder.glob("*.json"), key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
 
 
+def list_theme_store_files(folder_text: str) -> List[Path]:
+    folder = resolve_project_path(folder_text)
+    if not folder.exists():
+        return []
+    return sorted(folder.rglob("theme_store.json"), key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
+
+
 def display_path(path: Path) -> str:
     try:
         return str(path.relative_to(PROJECT_ROOT))
@@ -95,10 +111,43 @@ def outcome_timestamp(path: Path) -> str:
     return f"{parts[0]}_{parts[1]}"
 
 
+def artifact_scope_key(path: Path) -> str:
+    if path.name == "theme_store.json":
+        return path.parent.name
+    suffixes = [
+        "_outcome_optimized",
+        "_outcome_aggregation",
+        "_calibration_validated",
+        "_calibration_raw",
+        "_reinforcement_plan",
+    ]
+    stem = path.stem
+    for suffix in suffixes:
+        if stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
 def matched_aggregation_index(case_path: Path, aggregation_paths: List[Path]) -> int:
+    case_scope = artifact_scope_key(case_path)
+    for index, aggregation_path in enumerate(aggregation_paths):
+        if case_scope and artifact_scope_key(aggregation_path) == case_scope:
+            return index
     case_key = outcome_timestamp(case_path)
     for index, aggregation_path in enumerate(aggregation_paths):
         if case_key and outcome_timestamp(aggregation_path) == case_key:
+            return index
+    return 0
+
+
+def matched_theme_store_index(case_path: Path, theme_store_paths: List[Path]) -> int:
+    case_scope = artifact_scope_key(case_path)
+    for index, theme_store_path in enumerate(theme_store_paths):
+        if case_scope and artifact_scope_key(theme_store_path) == case_scope:
+            return index
+    case_key = outcome_timestamp(case_path)
+    for index, theme_store_path in enumerate(theme_store_paths):
+        if case_key and outcome_timestamp(theme_store_path.parent) == case_key:
             return index
     return 0
 
@@ -257,6 +306,67 @@ def render_rows(rows: List[Dict[str, Any]], empty_text: str) -> None:
         st.caption(empty_text)
         return
     st.dataframe([compact_theme_row(row) for row in rows], width="stretch", hide_index=True)
+
+
+def flatten_theme_store_matches(theme_store_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+    matches = []
+    for theme_id, theme_data in theme_store_json.items():
+        if not isinstance(theme_data, dict):
+            continue
+        theme_label = theme_data.get("theme_label") or theme_id
+        for action_lane, lane_data in (theme_data.get("action_lanes") or {}).items():
+            for subtheme, subtheme_data in (lane_data.get("subthemes") or {}).items():
+                for match in subtheme_data.get("matches") or []:
+                    if not isinstance(match, dict):
+                        continue
+                    matches.append(
+                        {
+                            "Theme ID": theme_id,
+                            "Theme": theme_label,
+                            "Action lane": action_lane,
+                            "Subtheme": subtheme,
+                            "Case": match.get("case_name"),
+                            "Case effect": humanize(match.get("case_effect")),
+                            "Confidence": humanize(match.get("confidence")),
+                            "Rank": match.get("rank_score"),
+                            "Review priority": match.get("review_priority_score"),
+                            "Review status": humanize(match.get("review_status")),
+                            "Source": match.get("source_pointer") or match.get("paragraph_reference"),
+                            "Summary": match.get("summary"),
+                            "Factual hooks": ", ".join(match.get("factual_hooks") or []),
+                            "Legal functions": ", ".join(match.get("legal_functions") or []),
+                        }
+                    )
+    return sorted(
+        matches,
+        key=lambda row: (
+            str(row.get("Theme ID") or ""),
+            str(row.get("Action lane") or ""),
+            -(row.get("Review priority") or row.get("Rank") or 0),
+        ),
+    )
+
+
+def summarize_theme_store(theme_store_json: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows = []
+    for theme_id, theme_data in theme_store_json.items():
+        if not isinstance(theme_data, dict):
+            continue
+        rank_data = theme_data.get("theme_rank_data") or {}
+        lanes = theme_data.get("action_lanes") or {}
+        rows.append(
+            {
+                "Theme ID": theme_id,
+                "Theme": theme_data.get("theme_label") or theme_id,
+                "Matches": theme_data.get("n_matches", 0),
+                "High confidence": theme_data.get("n_high_confidence", 0),
+                "Win drivers": theme_data.get("n_win_drivers", 0),
+                "Action lanes": ", ".join(lanes.keys()) if lanes else "-",
+                "Recommendation": humanize(rank_data.get("recommendation")),
+                "Net score": rank_data.get("net_theme_score"),
+            }
+        )
+    return sorted(rows, key=lambda row: (-(row.get("Matches") or 0), str(row.get("Theme ID") or "")))
 
 
 def signal_weight_map(case_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -552,6 +662,108 @@ def render_guidance(aggregation_json: Dict[str, Any]) -> None:
             st.caption("No pilot review points.")
 
 
+def render_theme_store(theme_store_json: Optional[Dict[str, Any]]) -> None:
+    st.header("Theme Store")
+    if not theme_store_json:
+        st.info("No theme_store.json loaded. Select one in the sidebar to inspect the deterministic review layer.")
+        return
+
+    theme_rows = summarize_theme_store(theme_store_json)
+    match_rows = flatten_theme_store_matches(theme_store_json)
+    review_rows = [row for row in match_rows if row.get("Review status") in {"Unreviewed", "Review Manually"} or row.get("Action lane") == "REVIEW_MANUALLY"]
+
+    lane_counts: Dict[str, int] = {}
+    for row in match_rows:
+        lane = row.get("Action lane") or "UNKNOWN"
+        lane_counts[lane] = lane_counts.get(lane, 0) + 1
+
+    metric_cols = st.columns(5)
+    metric_cols[0].metric("Themes", len(theme_rows))
+    metric_cols[1].metric("Matches", len(match_rows))
+    metric_cols[2].metric("Reinforce", lane_counts.get("REINFORCE", 0))
+    metric_cols[3].metric("Review manually", lane_counts.get("REVIEW_MANUALLY", 0))
+    metric_cols[4].metric("Risk control", sum(1 for row in match_rows if row.get("Theme ID") == "T20_RISK_CONTROL"))
+
+    tabs = st.tabs(["Summary", "Review Queue", "Theme Buckets", "Raw JSON"])
+
+    with tabs[0]:
+        st.markdown(
+            '<div class="section-note">Deterministic grouping layer: themes are the routing buckets, action lanes keep reinforce material separate from manual-review or risk material.</div>',
+            unsafe_allow_html=True,
+        )
+        st.dataframe(theme_rows, width="stretch", hide_index=True)
+
+    with tabs[1]:
+        st.markdown(
+            '<div class="section-note">Flat working queue. This is where employer attack points and qualified uses are easiest to review without changing upstream LLM output.</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(f"{len(review_rows)} unreviewed or manual-review rows before filtering.")
+        action_filter = st.multiselect(
+            "Action lane",
+            sorted({str(row.get("Action lane")) for row in match_rows if row.get("Action lane")}),
+            default=sorted({str(row.get("Action lane")) for row in match_rows if row.get("Action lane") == "REVIEW_MANUALLY"}),
+        )
+        theme_filter = st.selectbox(
+            "Theme",
+            ["All"] + [f"{row['Theme ID']} - {row['Theme']}" for row in theme_rows],
+        )
+        search_text = st.text_input("Search summaries", value="")
+
+        filtered_rows = match_rows
+        if action_filter:
+            filtered_rows = [row for row in filtered_rows if row.get("Action lane") in action_filter]
+        if theme_filter != "All":
+            selected_theme_id = theme_filter.split(" - ", 1)[0]
+            filtered_rows = [row for row in filtered_rows if row.get("Theme ID") == selected_theme_id]
+        if search_text.strip():
+            needle = search_text.strip().lower()
+            filtered_rows = [
+                row
+                for row in filtered_rows
+                if needle in str(row.get("Summary") or "").lower()
+                or needle in str(row.get("Theme") or "").lower()
+                or needle in str(row.get("Source") or "").lower()
+            ]
+
+        st.dataframe(filtered_rows, width="stretch", hide_index=True)
+
+    with tabs[2]:
+        for theme_id, theme_data in theme_store_json.items():
+            if not isinstance(theme_data, dict):
+                continue
+            title = f"{theme_id}: {theme_data.get('theme_label') or theme_id}"
+            with st.expander(title):
+                rank_data = theme_data.get("theme_rank_data") or {}
+                st.write(
+                    f"**Matches:** {theme_data.get('n_matches', 0)} | "
+                    f"**Recommendation:** {humanize(rank_data.get('recommendation'))} | "
+                    f"**Net score:** {format_number(rank_data.get('net_theme_score'))}"
+                )
+                for action_lane, lane_data in (theme_data.get("action_lanes") or {}).items():
+                    st.subheader(humanize(action_lane))
+                    for subtheme, subtheme_data in (lane_data.get("subthemes") or {}).items():
+                        st.write(f"**{humanize(subtheme)}**")
+                        rows = []
+                        for match in subtheme_data.get("matches") or []:
+                            rows.append(
+                                {
+                                    "Case": match.get("case_name"),
+                                    "Effect": humanize(match.get("effect")),
+                                    "Case effect": humanize(match.get("case_effect")),
+                                    "Confidence": humanize(match.get("confidence")),
+                                    "Rank": match.get("rank_score"),
+                                    "Source": match.get("source_pointer"),
+                                    "Summary": match.get("summary"),
+                                }
+                            )
+                        if rows:
+                            st.dataframe(rows, width="stretch", hide_index=True)
+
+    with tabs[3]:
+        st.json(theme_store_json)
+
+
 def render_multi_case_placeholder() -> None:
     st.title("Multi-Case Monitor")
     st.info("Placeholder only. Multi-case corpus aggregation mode will be added after the single-case monitor is validated.")
@@ -569,9 +781,11 @@ def load_inputs() -> Optional[tuple]:
     if input_mode == "Folder":
         case_folder = st.sidebar.text_input("Outcome JSON folder", value=str(DEFAULT_CASE_DIR))
         aggregation_folder = st.sidebar.text_input("Aggregation JSON folder", value=str(DEFAULT_AGGREGATION_DIR))
+        theme_store_folder = st.sidebar.text_input("Theme store folder", value=str(DEFAULT_THEME_STORE_DIR))
 
         case_paths = list_json_files(case_folder)
         aggregation_paths = list_json_files(aggregation_folder)
+        theme_store_paths = list_theme_store_files(theme_store_folder)
 
         if not case_paths:
             st.error(f"No JSON files found in {case_folder}")
@@ -592,15 +806,31 @@ def load_inputs() -> Optional[tuple]:
             index=aggregation_default,
             format_func=lambda path: path.name,
         )
+        theme_store_path = None
+        if theme_store_paths:
+            theme_store_default = matched_theme_store_index(case_path, theme_store_paths)
+            theme_store_path = st.sidebar.selectbox(
+                "Theme store JSON",
+                theme_store_paths,
+                index=theme_store_default,
+                format_func=display_path,
+            )
+        else:
+            st.sidebar.warning("No theme_store.json files found.")
 
-        if outcome_timestamp(case_path) != outcome_timestamp(aggregation_path):
-            st.sidebar.warning("Selected files do not share the same timestamp prefix.")
+        if artifact_scope_key(case_path) != artifact_scope_key(aggregation_path):
+            st.sidebar.warning("Selected case and aggregation files do not share the same run/case scope.")
+        if theme_store_path and artifact_scope_key(case_path) != artifact_scope_key(theme_store_path):
+            st.sidebar.warning("Selected case and theme store files do not share the same run/case scope.")
 
         st.sidebar.caption(f"Case: {display_path(case_path)}")
         st.sidebar.caption(f"Aggregation: {display_path(aggregation_path)}")
+        if theme_store_path:
+            st.sidebar.caption(f"Theme store: {display_path(theme_store_path)}")
 
         try:
-            return load_json_from_path(str(case_path)), load_json_from_path(str(aggregation_path))
+            theme_store_json = load_json_from_path(str(theme_store_path)) if theme_store_path else None
+            return load_json_from_path(str(case_path)), load_json_from_path(str(aggregation_path)), theme_store_json
         except Exception as exc:
             st.error(f"Could not load selected JSON input: {exc}")
             return None
@@ -608,15 +838,19 @@ def load_inputs() -> Optional[tuple]:
     if input_mode == "Upload":
         case_upload = st.sidebar.file_uploader("case_outcome_optimized.json", type="json")
         aggregation_upload = st.sidebar.file_uploader("outcome_aggregation.json", type="json")
+        theme_store_upload = st.sidebar.file_uploader("theme_store.json", type="json")
         if not case_upload or not aggregation_upload:
             st.info("Upload both JSON files to begin.")
             return None
-        return load_json_from_upload(case_upload), load_json_from_upload(aggregation_upload)
+        theme_store_json = load_json_from_upload(theme_store_upload) if theme_store_upload else None
+        return load_json_from_upload(case_upload), load_json_from_upload(aggregation_upload), theme_store_json
 
     case_path = st.sidebar.text_input("Case outcome JSON path", value=str(DEFAULT_CASE_PATH))
     aggregation_path = st.sidebar.text_input("Aggregation JSON path", value=str(DEFAULT_AGGREGATION_PATH))
+    theme_store_path = st.sidebar.text_input("Theme store JSON path", value=str(DEFAULT_THEME_STORE_PATH))
     try:
-        return load_json_from_path(case_path), load_json_from_path(aggregation_path)
+        theme_store_json = load_json_from_path(theme_store_path) if theme_store_path.strip() else None
+        return load_json_from_path(case_path), load_json_from_path(aggregation_path), theme_store_json
     except Exception as exc:
         st.error(f"Could not load JSON input: {exc}")
         return None
@@ -641,13 +875,13 @@ def main() -> None:
     if loaded is None:
         return
 
-    case_json, aggregation_json = loaded
+    case_json, aggregation_json, theme_store_json = loaded
     render_header(case_json, aggregation_json)
     render_source_panel(case_json, aggregation_json)
 
     section = st.sidebar.radio(
         "Section",
-        ["Overview", "Case intelligence", "Theme guidance", "Practical guidance", "Raw JSON"],
+        ["Overview", "Case intelligence", "Theme guidance", "Theme store", "Practical guidance", "Raw JSON"],
     )
 
     if section == "Overview":
@@ -658,16 +892,24 @@ def main() -> None:
         render_legal_intelligence(case_json)
     elif section == "Theme guidance":
         render_optimization_interpretation(aggregation_json)
+    elif section == "Theme store":
+        render_theme_store(theme_store_json)
     elif section == "Practical guidance":
         render_guidance(aggregation_json)
     else:
-        left, right = st.columns(2)
+        left, middle, right = st.columns(3)
         with left:
             st.subheader("Case Outcome Optimized JSON")
             st.json(case_json)
-        with right:
+        with middle:
             st.subheader("Outcome Aggregation JSON")
             st.json(aggregation_json)
+        with right:
+            st.subheader("Theme Store JSON")
+            if theme_store_json:
+                st.json(theme_store_json)
+            else:
+                st.caption("No theme_store.json loaded.")
 
 
 if __name__ == "__main__":

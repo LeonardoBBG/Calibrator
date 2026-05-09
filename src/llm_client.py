@@ -1,12 +1,15 @@
 import json
 import hashlib
 import os
+import time
 from pathlib import Path
 from typing import Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
+DEFAULT_REQUEST_MAX_RETRIES = 1
+DEFAULT_REQUEST_RETRY_DELAY_SECONDS = 5
 
 class LLMClient:
     def __init__(
@@ -17,7 +20,10 @@ class LLMClient:
         max_tokens: int,
         require_temperature_support: bool = True,
         cache_dir: Optional[Path] = None,
-        cache_enabled: bool = False
+        cache_enabled: bool = False,
+        request_timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        request_max_retries: int = DEFAULT_REQUEST_MAX_RETRIES,
+        request_retry_delay_seconds: int = DEFAULT_REQUEST_RETRY_DELAY_SECONDS
     ):
         self.provider = provider
         self.model = model
@@ -26,6 +32,9 @@ class LLMClient:
         self.require_temperature_support = require_temperature_support
         self.cache_dir = cache_dir
         self.cache_enabled = cache_enabled
+        self.request_timeout_seconds = request_timeout_seconds
+        self.request_max_retries = request_max_retries
+        self.request_retry_delay_seconds = request_retry_delay_seconds
 
     def complete_json(self, system_prompt: str, user_payload: Dict) -> Dict:
         """Send prompt and payload to LLM and return parsed JSON response."""
@@ -161,36 +170,43 @@ class LLMClient:
         )
 
     def _post_json(self, url: str, body: Dict, headers: Dict[str, str]) -> Dict:
-        payload = json.dumps(body, ensure_ascii=False).encode('utf-8')
+        payload = json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
         request_headers = {
             "Content-Type": "application/json",
             **headers
         }
         request = Request(url, data=payload, headers=request_headers, method="POST")
-        try:
-            with urlopen(request, timeout=DEFAULT_REQUEST_TIMEOUT_SECONDS) as response:
-                response_body = response.read().decode('utf-8')
-        except HTTPError as exc:
-            error_body = exc.read().decode('utf-8', errors='replace')
-            if exc.code == 400 and (
-                "invalid model ID" in error_body
-                or "does not exist" in error_body
-                or "you do not have access" in error_body
-            ):
+        response_body = None
+        attempts = max(1, self.request_max_retries + 1)
+        for attempt in range(1, attempts + 1):
+            try:
+                with urlopen(request, timeout=self.request_timeout_seconds) as response:
+                    response_body = response.read().decode('utf-8')
+                break
+            except HTTPError as exc:
+                error_body = exc.read().decode('utf-8', errors='replace')
+                if exc.code == 400 and (
+                    "invalid model ID" in error_body
+                    or "does not exist" in error_body
+                    or "you do not have access" in error_body
+                ):
+                    raise RuntimeError(
+                        f"OpenAI rejected model '{self.model}' as an invalid or inaccessible model ID. "
+                        "Set MODEL_NAME in the first notebook cell to a valid OpenAI model "
+                        "that supports Chat Completions, such as 'gpt-4.1-mini'."
+                    ) from exc
+                raise RuntimeError(f"API request failed with HTTP {exc.code}: {error_body}") from exc
+            except URLError as exc:
+                raise RuntimeError(f"API request failed: {exc.reason}") from exc
+            except TimeoutError as exc:
+                if attempt < attempts:
+                    time.sleep(self.request_retry_delay_seconds)
+                    continue
                 raise RuntimeError(
-                    f"OpenAI rejected model '{self.model}' as an invalid or inaccessible model ID. "
-                    "Set MODEL_NAME in the first notebook cell to a valid OpenAI model "
-                    "that supports Chat Completions, such as 'gpt-4.1-mini'."
+                    f"API request timed out after {self.request_timeout_seconds} seconds "
+                    f"({attempts} attempt(s)). For large calibration inputs, reduce input size, "
+                    "use a faster model, or increase REQUEST_TIMEOUT_SECONDS in the notebook/config."
                 ) from exc
-            raise RuntimeError(f"API request failed with HTTP {exc.code}: {error_body}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"API request failed: {exc.reason}") from exc
-        except TimeoutError as exc:
-            raise RuntimeError(
-                f"API request timed out after {DEFAULT_REQUEST_TIMEOUT_SECONDS} seconds. "
-                "For large calibration inputs, reduce input size, use a faster model, or "
-                "increase DEFAULT_REQUEST_TIMEOUT_SECONDS in src/llm_client.py."
-            ) from exc
         return json.loads(response_body)
 
     def _parse_json_content(self, content: str) -> Dict:

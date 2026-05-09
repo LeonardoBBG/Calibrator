@@ -1,10 +1,5 @@
 from typing import Dict, TYPE_CHECKING
 
-try:
-    from dictionary_loader import compact_dictionary_for_llm
-except ImportError:
-    from src.dictionary_loader import compact_dictionary_for_llm
-
 if TYPE_CHECKING:
     from llm_client import LLMClient
 
@@ -26,14 +21,14 @@ def count_reinforcement_clusters(reinforcement_plan: Dict) -> int:
 
 def run_compression(
     validated_calibration: Dict,
-    dictionary: Dict,
+    compact_dict: Dict,
     compression_prompt: str,
     llm_client: "LLMClient"
 ) -> Dict:
     """Run the compression step to create non-duplicative reinforcement plan."""
     payload = {
+        "WS_THEME_DICTIONARY_JSON": compact_dict,
         "VALIDATED_CALIBRATION_JSON": validated_calibration,
-        "WS_THEME_DICTIONARY_JSON": compact_dictionary_for_llm(dictionary)
     }
     response = llm_client.complete_json(compression_prompt, payload)
     return response

@@ -30,8 +30,11 @@ class Config:
     temperature: float
     require_temperature_support: bool
     max_tokens: int
+    request_timeout_seconds: int
+    request_max_retries: int
     max_repair_attempts: int
     max_outcome_repair_attempts: int
+    continue_on_case_error: bool
     cache_enabled: bool
     validate_json_writes: bool
     ocr_enabled: bool
@@ -71,8 +74,11 @@ class Config:
             temperature=0.0,
             require_temperature_support=True,
             max_tokens=12000,
+            request_timeout_seconds=600,
+            request_max_retries=1,
             max_repair_attempts=3,
             max_outcome_repair_attempts=1,
+            continue_on_case_error=True,
             cache_enabled=True,
             validate_json_writes=False,
             ocr_enabled=False,

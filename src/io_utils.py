@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 from datetime import datetime
-from typing import Any, TYPE_CHECKING
+from typing import Any, Iterable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from config import Config
@@ -56,3 +56,12 @@ def make_source_slug(path: Path) -> str:
     """Create a filesystem-safe slug while preserving the source filename stem."""
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", path.stem).strip("_")
     return slug or "source"
+
+def make_run_scope_slug(run_id: str, case_slugs: Iterable[str]) -> str:
+    """Create a run-level artifact slug that preserves single-case source identity."""
+    slugs = [slug for slug in case_slugs if slug]
+    if len(slugs) == 1:
+        return f"{run_id}_{slugs[0]}"
+    if len(slugs) > 1:
+        return f"{run_id}_batch_{len(slugs)}_cases"
+    return f"{run_id}_no_successful_cases"
