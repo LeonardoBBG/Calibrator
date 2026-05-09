@@ -643,12 +643,13 @@ def inject_styles() -> None:
                 grid-template-columns: 1fr;
             }
         }
-        .view-strip {
-            background: rgba(255,255,255,0.035);
-            border: 1px solid rgba(255,255,255,0.07);
-            border-radius: 8px;
-            padding: 0.65rem 0.75rem 0.2rem 0.75rem;
-            margin: 0.8rem 0 1rem 0;
+        [data-testid="stExpander"] details {
+            background: rgba(255,255,255,0.03) !important;
+            border: 1px solid rgba(255,255,255,0.08) !important;
+            border-radius: 8px !important;
+        }
+        [data-testid="stExpander"] summary {
+            color: #e2e8f0 !important;
         }
         </style>
         """,
@@ -786,12 +787,18 @@ def render_header(case_json: Dict[str, Any], aggregation_json: Dict[str, Any]) -
         unsafe_allow_html=True,
     )
 
-    detail_cols = st.columns(3)
-    detail_cols[0].write(f"**Judgment date:** {metadata.get('judgment_date', '-')}")
     claims = metadata.get("claims", [])
     claims_str = ", ".join(claims) if isinstance(claims, list) else str(claims or "-")
-    detail_cols[1].write(f"**Claims:** {claims_str}")
-    detail_cols[2].write(f"**Transferability:** {humanize(outcome.get('transferability_rating'))}")
+    lbl = "color:#94a3b8;font-size:0.76rem;text-transform:uppercase;letter-spacing:0.07em;font-weight:700;margin-right:0.4rem"
+    val = "font-size:0.9rem;color:#e2e8f0"
+    st.markdown(
+        f"<div style='display:flex;gap:2.5rem;padding:0.5rem 0 0.25rem 0;flex-wrap:wrap;'>"
+        f"<span><span style='{lbl}'>Date</span><span style='{val}'>{escape(str(metadata.get('judgment_date', '-')))}</span></span>"
+        f"<span><span style='{lbl}'>Claims</span><span style='{val}'>{escape(claims_str)}</span></span>"
+        f"<span><span style='{lbl}'>Transferability</span><span style='{val}'>{escape(humanize(outcome.get('transferability_rating')))}</span></span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_source_panel(case_json: Dict[str, Any], aggregation_json: Dict[str, Any]) -> None:
@@ -801,7 +808,7 @@ def render_source_panel(case_json: Dict[str, Any], aggregation_json: Dict[str, A
     st.caption("Read-only monitor. The Witness Statement is not rewritten or changed by this app.")
 
 
-def render_legal_intelligence(case_json: Dict[str, Any]) -> None:
+def render_case_intelligence(case_json: Dict[str, Any]) -> None:
     st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
     st.markdown("<div class='section-title'>Case Intelligence</div>", unsafe_allow_html=True)
 
@@ -831,26 +838,43 @@ def render_legal_intelligence(case_json: Dict[str, Any]) -> None:
         st.subheader("Use instruction")
         st.write(outcome.get("optimization_notes", "No optimization note found."))
 
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_judgment_signals(case_json: Dict[str, Any]) -> None:
+    st.markdown("<div class='app-shell'>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Judgment Signals</div>", unsafe_allow_html=True)
+
+    outcome = case_json.get("outcome_optimization", {})
     weights = signal_weight_map(case_json)
-    st.subheader("Judgment signals")
-    for signal in case_json.get("judgment_signals", []):
+    signals = case_json.get("judgment_signals", [])
+
+    if not signals:
+        st.caption("No judgment signals recorded.")
+    for signal in signals:
         signal_id = signal.get("signal_id")
         weight = weights.get(signal_id, {})
-        title = (
-            f"{signal_id}: {signal.get('signal_summary', 'Signal')[:92]}"
-            f" ({humanize(weight.get('causal_weight', 'NO_WEIGHT'))})"
-        )
+        causal = weight.get("causal_weight", "")
+        causal_label = humanize(causal) if causal else "—"
+        summary_short = (signal.get("signal_summary") or "Signal")[:75]
+        title = f"{signal_id}  ·  {causal_label}  ·  {summary_short}"
         with st.expander(title):
-            st.write(f"**Theme:** {signal.get('mapped_theme_id', '-')} | {humanize(signal.get('recommended_action', '-'))}")
-            st.write(f"**Case effect:** {humanize(signal.get('case_effect', '-'))}")
-            st.write(f"**Confidence:** {humanize(signal.get('dictionary_match_confidence', '-'))}")
+            causal_tone = "good" if causal == "DECISIVE" else "warn" if causal == "CONTRIBUTING" else "info"
+            st.markdown(
+                f"{badge(causal_label, causal_tone)} "
+                f"{badge(humanize(signal.get('recommended_action', '-')), 'info')} "
+                f"{badge(humanize(signal.get('case_effect', '-')), 'info')} "
+                f"{badge(humanize(signal.get('dictionary_match_confidence', '-')), 'info')}",
+                unsafe_allow_html=True,
+            )
+            st.write(f"**Theme:** {signal.get('mapped_theme_id', '-')}")
             st.write(f"**Summary:** {signal.get('signal_summary', '-')}")
             st.write(f"**Relevance to WS:** {signal.get('relevance_to_ws', '-')}")
             st.write(f"**Causal weight reason:** {weight.get('causal_weight_reason', '-')}")
             refs = signal.get("judgment_references", [])
             st.caption(f"Judgment references: {', '.join(map(str, refs)) if refs else '-'}")
 
-    st.subheader("Adverse signals")
+    st.markdown("<div class='section-title' style='margin-top:1rem'>Adverse Signals</div>", unsafe_allow_html=True)
     flags = outcome.get("negative_theme_flags", [])
     if flags:
         st.dataframe([{
@@ -872,11 +896,11 @@ def render_optimization_interpretation(aggregation_json: Dict[str, Any]) -> None
     counts = recommendation_counts(aggregation_json)
 
     cols = st.columns(5)
-    cols[0].metric("Maximise", counts.get("REINFORCE_PRIMARY", 0) + counts.get("REINFORCE_SUPPORTING", 0))
-    cols[1].metric("Refine", counts.get("REFRAME", 0))
-    cols[2].metric("Minimise", counts.get("MONITOR", 0) + counts.get("AVOID", 0))
-    cols[3].metric("Quarantine", counts.get("RISK_CONTROL", 0))
-    cols[4].metric("Ignore", counts.get("NO_SIGNAL", 0))
+    cols[0].markdown(mini_card_html("Maximise", str(counts.get("REINFORCE_PRIMARY", 0) + counts.get("REINFORCE_SUPPORTING", 0)), "Themes to lead with", "good"), unsafe_allow_html=True)
+    cols[1].markdown(mini_card_html("Refine", str(counts.get("REFRAME", 0)), "Useful, needs framing", "info"), unsafe_allow_html=True)
+    cols[2].markdown(mini_card_html("Minimise", str(counts.get("MONITOR", 0) + counts.get("AVOID", 0)), "Use carefully", "warn"), unsafe_allow_html=True)
+    cols[3].markdown(mini_card_html("Quarantine", str(counts.get("RISK_CONTROL", 0)), "Legal review only", "bad"), unsafe_allow_html=True)
+    cols[4].markdown(mini_card_html("Ignore", str(counts.get("NO_SIGNAL", 0)), "No signal from this case"), unsafe_allow_html=True)
 
     with st.expander("Technical scoring details", expanded=False):
         st.write(f"Scoring profile: {metadata.get('scoring_profile_version', '-')}")
@@ -905,11 +929,15 @@ def render_optimization_interpretation(aggregation_json: Dict[str, Any]) -> None
         render_rows(get_theme_rows(aggregation_json, "RISK_CONTROL"), "No risk-control theme identified.")
         st.subheader("Risk summary")
         risk = aggregation_json.get("risk_control_summary", {})
+        polkey_n = risk.get("polkey_risk_cases", 0)
+        contrib_n = risk.get("contribution_risk_cases", 0)
+        low_rem_n = risk.get("low_remedy_win_cases", 0)
+        rec_use = humanize(risk.get("recommended_use"))
         rc = st.columns(4)
-        rc[0].metric("Polkey risk cases", risk.get("polkey_risk_cases", 0))
-        rc[1].metric("Contribution risk cases", risk.get("contribution_risk_cases", 0))
-        rc[2].metric("Low remedy win cases", risk.get("low_remedy_win_cases", 0))
-        rc[3].metric("Recommended use", humanize(risk.get("recommended_use")))
+        rc[0].markdown(mini_card_html("Polkey risk cases", str(polkey_n), "Cases with Polkey reduction", "bad" if polkey_n else "info"), unsafe_allow_html=True)
+        rc[1].markdown(mini_card_html("Contribution risk cases", str(contrib_n), "Cases with conduct finding", "bad" if contrib_n else "info"), unsafe_allow_html=True)
+        rc[2].markdown(mini_card_html("Low remedy cases", str(low_rem_n), "Low compensation outcomes", "warn" if low_rem_n else "info"), unsafe_allow_html=True)
+        rc[3].markdown(mini_card_html("Recommended use", rec_use, "Risk handling guidance", "bad" if risk.get("recommended_use") == "QUARANTINE" else "info"), unsafe_allow_html=True)
         patterns = risk.get("negative_pattern_counts", {})
         if patterns:
             st.dataframe([{"Pattern": humanize(p), "Count": c} for p, c in patterns.items()], use_container_width=True, hide_index=True)
@@ -929,7 +957,7 @@ def render_guidance(aggregation_json: Dict[str, Any]) -> None:
         ("Refine", guidance.get("Refine", []), "refine"),
         ("Watch", guidance.get("Minimise", []), "watch"),
         ("Quarantine", guidance.get("Quarantine", []), "quarantine"),
-        ("Park", guidance.get("Ignore", []), "park"),
+        ("Ignore", guidance.get("Ignore", []), "park"),
     ]
     for title, items, tone in cards:
         st.markdown(guidance_row_html(title, items, tone), unsafe_allow_html=True)
@@ -973,12 +1001,15 @@ def render_theme_store(theme_store_json: Optional[Dict[str, Any]]) -> None:
         eff = str(row.get("Effect") or "UNKNOWN")
         effect_counts[eff] = effect_counts.get(eff, 0) + 1
 
+    n_reinforce = effect_counts.get("Reinforce", 0)
+    n_review = effect_counts.get("Review Manually", 0)
+    n_risk = sum(1 for r in match_rows if "T20" in str(r.get("Theme ID", "")))
     mc = st.columns(5)
-    mc[0].metric("Themes", len(theme_rows))
-    mc[1].metric("Matches", len(match_rows))
-    mc[2].metric("Reinforce", effect_counts.get("Reinforce", 0))
-    mc[3].metric("Review manually", effect_counts.get("Review Manually", 0))
-    mc[4].metric("Risk control", sum(1 for r in match_rows if "T20" in str(r.get("Theme ID", ""))))
+    mc[0].markdown(mini_card_html("Themes", str(len(theme_rows)), "With at least one match"), unsafe_allow_html=True)
+    mc[1].markdown(mini_card_html("Total matches", str(len(match_rows)), "Across all themes"), unsafe_allow_html=True)
+    mc[2].markdown(mini_card_html("Reinforce", str(n_reinforce), "Direct reinforcement signals", "good"), unsafe_allow_html=True)
+    mc[3].markdown(mini_card_html("Review manually", str(n_review), "Needs manual check", "warn"), unsafe_allow_html=True)
+    mc[4].markdown(mini_card_html("Risk control", str(n_risk), "T20 risk signals", "bad" if n_risk else "info"), unsafe_allow_html=True)
 
     tabs = st.tabs(["Summary", "Review Queue", "Theme Buckets"])
 
@@ -1273,18 +1304,6 @@ def render_single_case_tab() -> None:
         st.error(f"No JSON files found in {DEFAULT_AGGREGATION_DIR}")
         return
 
-    # Case selector — single dropdown, canvas-level
-    st.markdown(
-        """
-        <div class='hero'>
-          <div class='eyebrow'>Single-case outcome monitor</div>
-          <div class='hero-title'>Case review</div>
-          <p class='hero-sub'>Select a case to inspect its outcome, theme guidance, and deterministic review layer.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     case_idx = st.selectbox(
         "Select case",
         range(len(case_paths)),
@@ -1312,25 +1331,16 @@ def render_single_case_tab() -> None:
     render_header(case_json, aggregation_json)
     render_source_panel(case_json, aggregation_json)
 
-    st.markdown("<div class='view-strip'>", unsafe_allow_html=True)
-    section = st.radio(
-        "Single-case view",
-        ["Overview", "Case intelligence", "Theme guidance", "Case review queue", "Strategy brief"],
-        horizontal=True,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if section == "Overview":
-        render_legal_intelligence(case_json)
+    sec_tabs = st.tabs(["Case Intelligence", "Judgment Signals", "Theme Guidance", "Case Review Queue", "Strategy Brief"])
+    with sec_tabs[0]:
+        render_case_intelligence(case_json)
+    with sec_tabs[1]:
+        render_judgment_signals(case_json)
+    with sec_tabs[2]:
         render_optimization_interpretation(aggregation_json)
-        render_guidance(aggregation_json)
-    elif section == "Case intelligence":
-        render_legal_intelligence(case_json)
-    elif section == "Theme guidance":
-        render_optimization_interpretation(aggregation_json)
-    elif section == "Case review queue":
+    with sec_tabs[3]:
         render_theme_store(theme_store_json)
-    elif section == "Strategy brief":
+    with sec_tabs[4]:
         render_guidance(aggregation_json)
 
 
@@ -1342,11 +1352,9 @@ def main() -> None:
     st.set_page_config(
         page_title="Calibrator Monitor",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
     inject_styles()
-
-    st.sidebar.title("Calibrator")
 
     tab_single, tab_corpus = st.tabs(["Single Case", "Argument Library"])
 

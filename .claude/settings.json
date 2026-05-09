@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 -m pytest src/tests.py -x -q)"
+      "Bash(python3 -m pytest src/tests.py -x -q)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('/home/hello/Projects/Calibrator/streamlit_single_case_monitor.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")"
     ]
   }
 }
