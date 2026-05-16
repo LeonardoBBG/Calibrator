@@ -1,4 +1,6 @@
 import json
+import os
+import sys
 from collections import defaultdict
 from html import escape
 from pathlib import Path
@@ -8,22 +10,35 @@ import streamlit as st
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-DEFAULT_CASE_PATH = PROJECT_ROOT / (
-    "output/outcome_optimized/"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.config import Config, default_require_temperature_support, safe_model_output_name
+from src.io_utils import make_run_id
+from src.main import latest_ws_tagging_artifact_path, run_calibrator
+from src.run_inventory import scan_judgment_run_statuses
+
+OUTPUT_BASE_ROOT = PROJECT_ROOT / "output"
+DEFAULT_RESULT_MODEL_NAME = "gpt-5.5"
+DEFAULT_MODEL_OUTPUT_ROOT = OUTPUT_BASE_ROOT / safe_model_output_name(DEFAULT_RESULT_MODEL_NAME)
+DEFAULT_CASE_PATH = DEFAULT_MODEL_OUTPUT_ROOT / (
+    "outcome_optimized/"
     "20260504_124953_Mr_P_Pronzynski_v_3663_Transport_-_2413742_2018_-_Judgment_1_outcome_optimized.json"
 )
-DEFAULT_AGGREGATION_PATH = PROJECT_ROOT / (
-    "output/outcome_aggregation/"
+DEFAULT_AGGREGATION_PATH = DEFAULT_MODEL_OUTPUT_ROOT / (
+    "outcome_aggregation/"
     "20260504_124953_Mr_P_Pronzynski_v_3663_Transport_-_2413742_2018_-_Judgment_1_outcome_aggregation.json"
 )
-DEFAULT_THEME_STORE_PATH = PROJECT_ROOT / (
-    "output/theme_store/"
+DEFAULT_THEME_STORE_PATH = DEFAULT_MODEL_OUTPUT_ROOT / (
+    "theme_store/"
     "20260504_124953_Mr_P_Pronzynski_v_3663_Transport_-_2413742_2018_-_Judgment_1/"
     "theme_store.json"
 )
-DEFAULT_CASE_DIR = PROJECT_ROOT / "output/outcome_optimized"
-DEFAULT_AGGREGATION_DIR = PROJECT_ROOT / "output/outcome_aggregation"
-DEFAULT_THEME_STORE_DIR = PROJECT_ROOT / "output/theme_store"
+DEFAULT_CASE_DIR = DEFAULT_MODEL_OUTPUT_ROOT / "outcome_optimized"
+DEFAULT_AGGREGATION_DIR = DEFAULT_MODEL_OUTPUT_ROOT / "outcome_aggregation"
+DEFAULT_THEME_STORE_DIR = DEFAULT_MODEL_OUTPUT_ROOT / "theme_store"
+DEFAULT_JUDGMENTS_DIR = PROJECT_ROOT / "input/judgments"
+DEFAULT_WS_TAGGING_DIR = DEFAULT_MODEL_OUTPUT_ROOT / "ws_tagging"
 
 RECOMMENDATION_ORDER = [
     "REINFORCE_PRIMARY",
@@ -177,6 +192,241 @@ def matched_theme_store_index(case_path: Path, theme_store_paths: List[Path]) ->
         if case_key and outcome_timestamp(p.parent) == case_key:
             return i
     return 0
+
+
+def _display_project_path(path: Optional[Path]) -> str:
+    if path is None:
+        return ""
+    try:
+        return str(path.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _artifact_counts_text(artifact_counts: Dict[str, int]) -> str:
+    if not artifact_counts:
+        return ""
+    return ", ".join(f"{name}: {count}" for name, count in sorted(artifact_counts.items()))
+
+
+def _runner_status_rows(statuses) -> List[Dict[str, str]]:
+    rows = []
+    for status in statuses:
+        rows.append({
+            "judgment": status.pdf_path.name,
+            "status": status.status,
+            "runnable": "yes" if status.runnable else "no",
+            "reason": status.reason,
+            "artifacts": _artifact_counts_text(status.artifact_counts),
+            "latest_artifact": _display_project_path(status.latest_artifact),
+        })
+    return rows
+
+
+def _latest_ws_summary_path() -> Optional[Path]:
+    return _latest_ws_summary_path_for_output(DEFAULT_MODEL_OUTPUT_ROOT)
+
+
+def _model_output_root(model_name: str) -> Path:
+    return OUTPUT_BASE_ROOT / safe_model_output_name(model_name)
+
+
+def _latest_ws_summary_path_for_output(output_root: Path) -> Optional[Path]:
+    summaries = sorted(
+        (output_root / "ws_tagging").glob("*_ws_tagging_summary.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return summaries[0] if summaries else None
+
+
+def _build_run_config(
+    run_mode: str,
+    selected_judgment: Optional[Path],
+    model_name: str,
+    max_tokens: int,
+    run_ws: bool,
+    reuse_existing_ws_tagging: bool,
+    max_parallel_cases: int,
+    ws_summary_path: Optional[Path],
+    cache_enabled: bool,
+) -> Config:
+    run_id = make_run_id()
+    config = Config.default(run_id)
+    config.run_mode = run_mode
+    config.judgments_dir = DEFAULT_JUDGMENTS_DIR
+    if selected_judgment is not None:
+        config.judgment_path = selected_judgment
+    config.model_name = model_name.strip()
+    config.require_temperature_support = default_require_temperature_support(config.model_name)
+    config.output_root = _model_output_root(config.model_name)
+    config.max_tokens = int(max_tokens)
+    config.run_ws = run_ws
+    config.reuse_existing_ws_tagging = reuse_existing_ws_tagging
+    config.max_parallel_cases = max(1, min(5, int(max_parallel_cases)))
+    if ws_summary_path is not None:
+        config.ws_tagging_summary_path = ws_summary_path
+    config.cache_enabled = cache_enabled
+    return config
+
+
+def render_runner_tab() -> None:
+    model_name = st.text_input("OpenAI model", value=DEFAULT_RESULT_MODEL_NAME, key="calibrator_runner_model")
+    model_output_root = _model_output_root(model_name)
+    st.caption(f"Model output folder: {model_output_root}")
+
+    statuses = scan_judgment_run_statuses(DEFAULT_JUDGMENTS_DIR, model_output_root)
+    runnable_statuses = [s for s in statuses if s.runnable]
+    complete_statuses = [s for s in statuses if s.status == "complete"]
+    blocked_statuses = [s for s in statuses if s.status == "blocked_partial"]
+
+    # ── Inventory overview ───────────────────────────────────
+    st.markdown("<div class='section-title'>Batch inventory</div>", unsafe_allow_html=True)
+    mc = st.columns(4)
+    mc[0].markdown(mini_card_html("Input PDFs", str(len(statuses)), f"Found in {DEFAULT_JUDGMENTS_DIR.name}"), unsafe_allow_html=True)
+    mc[1].markdown(mini_card_html("Ready to run", str(len(runnable_statuses)), "Pending — no output yet", "good" if runnable_statuses else ""), unsafe_allow_html=True)
+    mc[2].markdown(mini_card_html("Complete", str(len(complete_statuses)), "Full output exists — will be skipped", "info"), unsafe_allow_html=True)
+    mc[3].markdown(mini_card_html("Blocked partial", str(len(blocked_statuses)), "Partial output — will be skipped", "warn" if blocked_statuses else ""), unsafe_allow_html=True)
+
+    if not statuses:
+        st.warning(f"No PDFs found in {DEFAULT_JUDGMENTS_DIR}")
+        return
+
+    if blocked_statuses:
+        with st.expander(f"Blocked cases ({len(blocked_statuses)}) — review before running", expanded=False):
+            for s in blocked_statuses:
+                st.caption(f"**{s.pdf_path.name}** — {s.reason}")
+
+    st.divider()
+
+    # ── Mode selector ────────────────────────────────────────
+    run_mode_label = st.radio("Mode", ["Per doc", "Batch"], horizontal=True)
+
+    # ── Pre-work statement ───────────────────────────────────
+    if run_mode_label == "Batch":
+        n_run = len(runnable_statuses)
+        n_complete = len(complete_statuses)
+        n_blocked = len(blocked_statuses)
+        if n_run == 0:
+            st.info("Nothing to run — all PDFs are either complete or blocked.")
+        else:
+            st.markdown(
+                f"<div style='background:rgba(59,130,246,0.10);border:1px solid rgba(59,130,246,0.28);"
+                f"border-radius:10px;padding:0.85rem 1.1rem;margin:0.5rem 0 0.75rem 0;'>"
+                f"<div style='font-weight:800;font-size:1rem;margin-bottom:0.35rem;'>"
+                f"Batch will process {n_run} document{'s' if n_run != 1 else ''}</div>"
+                f"<div style='color:#cbd5e1;font-size:0.9rem;line-height:1.7;'>"
+                f"{len(statuses)} PDFs found &nbsp;&nbsp;·&nbsp;&nbsp;"
+                f"{n_complete} already complete (skipped) &nbsp;&nbsp;·&nbsp;&nbsp;"
+                f"{n_blocked} blocked partial (skipped) &nbsp;&nbsp;·&nbsp;&nbsp;"
+                f"<b style='color:#86efac;'>{n_run} will run</b></div></div>",
+                unsafe_allow_html=True,
+            )
+            with st.expander(f"Documents queued for this run ({n_run})", expanded=False):
+                for s in runnable_statuses:
+                    st.caption(f"· {s.pdf_path.name}")
+
+    # ── Per-doc selector ──────────────────────────────────────
+    selected_judgment = None
+    if run_mode_label == "Per doc":
+        if runnable_statuses:
+            selected_status = st.selectbox(
+                "Select document",
+                runnable_statuses,
+                format_func=lambda s: s.pdf_path.name,
+                label_visibility="collapsed",
+            )
+            selected_judgment = selected_status.pdf_path
+            st.caption(f"Status: {selected_status.reason}")
+        else:
+            st.info("No runnable documents — all PDFs are complete or blocked.")
+
+    # ── Run settings ──────────────────────────────────────────
+    with st.expander("Run settings", expanded=False):
+        api_key = st.text_input("OPENAI_API_KEY", type="password", value="")
+        max_tokens = st.number_input("Max completion tokens", min_value=1000, max_value=50000, value=12000, step=1000)
+        latest_summary = _latest_ws_summary_path_for_output(model_output_root)
+        latest_full_ws_artifact = latest_ws_tagging_artifact_path(model_output_root)
+        reuse_existing_ws_tagging = st.checkbox(
+            "Reuse local WS tagging artifact first",
+            value=True,
+            help="Checks this model's ws_tagging output folder before making a WS tagging LLM call.",
+        )
+        if latest_summary is not None:
+            st.caption(f"Latest local WS summary: {display_path(latest_summary)}")
+        elif latest_full_ws_artifact is not None:
+            st.caption(f"Latest local WS artifact: {display_path(latest_full_ws_artifact)}")
+        else:
+            st.caption("No local WS artifact found for this model output folder.")
+        run_ws = st.checkbox("Run WS tagging if no reusable artifact exists", value=True)
+        max_parallel_cases = st.number_input(
+            "Parallel case workers",
+            min_value=1,
+            max_value=5,
+            value=5 if run_mode_label == "Batch" else 1,
+            step=1,
+            disabled=run_mode_label != "Batch",
+        )
+        if run_mode_label != "Batch":
+            max_parallel_cases = 1
+        cache_enabled = st.checkbox("Use LLM cache", value=True)
+
+        ws_summary_path = None
+        if not run_ws:
+            summary_default = str(latest_summary) if latest_summary else ""
+            summary_text = st.text_input("Existing WS tagging summary", value=summary_default)
+            ws_summary_path = Path(summary_text).expanduser() if summary_text.strip() else None
+
+    # ── Run button ────────────────────────────────────────────
+    run_count = 1 if run_mode_label == "Per doc" and selected_judgment else len(runnable_statuses)
+    can_run = run_count > 0
+    if run_mode_label == "Per doc":
+        button_label = f"Run · {selected_judgment.name}" if selected_judgment else "No document selected"
+    else:
+        button_label = f"Run batch · {run_count} document{'s' if run_count != 1 else ''}"
+
+    if st.button(button_label, type="primary", disabled=not can_run, use_container_width=True):
+        if api_key:
+            os.environ["OPENAI_API_KEY"] = api_key
+        if not os.environ.get("OPENAI_API_KEY"):
+            st.error("OPENAI_API_KEY is required to run the calibration.")
+            return
+        has_reusable_ws_artifact = latest_summary is not None or latest_full_ws_artifact is not None
+        has_selected_ws_summary = ws_summary_path is not None and ws_summary_path.exists()
+        if not run_ws and not has_selected_ws_summary and not has_reusable_ws_artifact:
+            st.error("A valid existing WS tagging summary is required when WS tagging is disabled.")
+            return
+
+        run_mode = "debug" if run_mode_label == "Per doc" else "batch"
+        config = _build_run_config(
+            run_mode=run_mode,
+            selected_judgment=selected_judgment,
+            model_name=model_name,
+            max_tokens=max_tokens,
+            run_ws=run_ws,
+            reuse_existing_ws_tagging=reuse_existing_ws_tagging,
+            max_parallel_cases=max_parallel_cases,
+            ws_summary_path=ws_summary_path,
+            cache_enabled=cache_enabled,
+        )
+
+        doc_label = selected_judgment.name if run_mode == "debug" and selected_judgment else f"{run_count} documents"
+        with st.spinner(f"Running calibrator on {doc_label}. This may take several minutes per document…"):
+            try:
+                result = run_calibrator(config)
+            except Exception as exc:
+                st.exception(exc)
+                return
+
+        processed = result.get("processed_case_count", 0)
+        failed = result.get("failed_case_count", 0)
+        skipped_r = result.get("skipped_case_count", 0)
+        if failed == 0:
+            st.success(f"Run {result['run_id']} complete — {processed} processed, {skipped_r} skipped.")
+        else:
+            st.warning(f"Run {result['run_id']} finished with errors — {processed} processed, {failed} failed, {skipped_r} skipped.")
+        with st.expander("Run details", expanded=False):
+            st.json(result)
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +625,10 @@ def summarize_theme_store(theme_store_json: Dict[str, Any]) -> List[Dict[str, An
 # Corpus aggregation helpers
 # ---------------------------------------------------------------------------
 
+WINNER_RANK = {"Employee": 0, "Employer": 1, "Mixed": 2, "Unknown": 3}
+STRENGTH_RANK = {"Strong": 0, "Medium": 1, "Weak": 2, "Unknown": 3}
+
+
 def _group_sort_key(key: Tuple[str, str, str, str]) -> Tuple:
     _, effect, case_effect, confidence = key
     return (
@@ -384,22 +638,71 @@ def _group_sort_key(key: Tuple[str, str, str, str]) -> Tuple:
     )
 
 
-def aggregate_all_theme_stores(theme_store_dir: Path) -> Dict[str, Any]:
-    """Load every theme_store.json in the directory and aggregate by (theme, effect, case_effect, confidence)."""
-    paths = sorted(theme_store_dir.rglob("theme_store.json"), key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
-    if not paths:
-        return {"paths": [], "grouped": {}, "theme_labels": {}, "cases": set(), "n_matches": 0}
+def _build_case_outcome_map(outcome_dir: Path) -> Dict[str, Dict[str, str]]:
+    result: Dict[str, Dict[str, str]] = {}
+    if not outcome_dir.exists():
+        return result
+    for f in outcome_dir.glob("*.json"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        meta = data.get("case_metadata", {})
+        outcome = data.get("outcome_optimization", {})
+        case_name = meta.get("case_name")
+        if not case_name:
+            continue
+        liability = (outcome.get("claimant_liability_outcome") or "").upper()
+        winner = "Employee" if liability == "WIN" else "Employer" if liability == "LOSS" else "Mixed" if liability == "MIXED" else "Unknown"
+        band = (outcome.get("liability_outcome_strength_band") or "").upper()
+        strength = "Strong" if "STRONG" in band else "Medium" if "MODERATE" in band else "Weak" if "WEAK" in band else "Unknown"
+        result[case_name] = {"winner": winner, "strength": strength}
+    return result
+
+
+def aggregate_all_theme_stores(theme_store_dir: Path, outcome_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Load every theme_store.json and aggregate by (theme, effect, case_effect, confidence).
+    Attaches _winner and _strength to each match from the corresponding outcome_optimized file."""
+    outcome_dir = outcome_dir or DEFAULT_CASE_DIR
+    case_outcome_map = _build_case_outcome_map(outcome_dir)
+
+    all_paths = sorted(theme_store_dir.rglob("theme_store.json"), key=lambda p: (p.stat().st_mtime, p.name), reverse=True)
+    if not all_paths:
+        return {"paths": [], "grouped": {}, "theme_labels": {}, "cases": set(), "n_matches": 0, "case_outcome_map": case_outcome_map}
+
+    loaded = []
+    for path in all_paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        loaded.append((path, data))
+
+    per_case_names = set()
+    batch_entries = []
+    selected_entries = []
+    for path, data in loaded:
+        case_names = {
+            m["case_name"]
+            for m in extract_all_matches(data)
+            if m.get("case_name")
+        }
+        if _is_batch_theme_store_path(path):
+            batch_entries.append((path, data, case_names))
+            continue
+        selected_entries.append((path, data, case_names))
+        per_case_names.update(case_names)
+
+    for path, data, case_names in batch_entries:
+        if case_names and case_names.issubset(per_case_names):
+            continue
+        selected_entries.append((path, data, case_names))
 
     grouped: Dict[Tuple, List[Dict]] = defaultdict(list)
     theme_labels: Dict[str, str] = {}
     cases: set = set()
 
-    for path in paths:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-
+    for path, data, _case_names in selected_entries:
         for theme_id, theme_data in data.items():
             if not isinstance(theme_data, dict):
                 continue
@@ -410,17 +713,29 @@ def aggregate_all_theme_stores(theme_store_dir: Path) -> Dict[str, Any]:
                 case_effect = m.get("case_effect") or "UNKNOWN"
                 confidence = m.get("confidence") or "UNKNOWN"
                 key = (theme_id, effect.upper(), case_effect.upper(), confidence.upper())
+                case_outcome = case_outcome_map.get(m.get("case_name") or "")
+                m["_winner"] = case_outcome["winner"] if case_outcome else "Unknown"
+                m["_strength"] = case_outcome["strength"] if case_outcome else "Unknown"
                 grouped[key].append(m)
                 if m.get("case_name"):
                     cases.add(m["case_name"])
 
     return {
-        "paths": paths,
+        "paths": [path for path, _data, _case_names in selected_entries],
         "grouped": dict(grouped),
         "theme_labels": theme_labels,
         "cases": cases,
         "n_matches": sum(len(v) for v in grouped.values()),
+        "case_outcome_map": case_outcome_map,
     }
+
+
+def _is_batch_theme_store_path(path: Path) -> bool:
+    """Detect run-level batch theme stores created as <run_id>_batch_<n>_cases."""
+    parts = path.parent.name.rsplit("_batch_", 1)
+    if len(parts) != 2 or not parts[1].endswith("_cases"):
+        return False
+    return parts[1][:-len("_cases")].isdigit()
 
 
 # ---------------------------------------------------------------------------
@@ -676,13 +991,22 @@ def badge(label: str, kind: str = "info") -> str:
     return f"<span class='badge-{kind}'>{escape(label)}</span>"
 
 
-def arg_card_html(case_name: str, summary: str, relevance: str, causal_reason: str, refs: str) -> str:
+def arg_card_html(case_name: str, summary: str, relevance: str, causal_reason: str, refs: str,
+                  winner: str = "", strength: str = "") -> str:
     chips = "".join(
         f"<span class='arg-chip'>{escape(c)}</span>"
         for c in [f"para {refs}"] if c.strip()
     )
+    outcome_bits = []
+    if winner and winner != "Unknown":
+        winner_colour = "#86efac" if winner == "Employee" else "#fca5a5" if winner == "Employer" else "#fcd34d"
+        outcome_bits.append(f"<span style='color:{winner_colour};font-weight:700;font-size:0.78rem;'>{escape(winner)} won</span>")
+    if strength and strength != "Unknown":
+        outcome_bits.append(f"<span class='arg-chip'>{escape(strength)}</span>")
+    outcome_html = f"<div style='margin-bottom:0.3rem;'>{'&nbsp;'.join(outcome_bits)}</div>" if outcome_bits else ""
     return (
         f"<div class='arg-card'>"
+        f"{outcome_html}"
         f"<div class='arg-title'>{escape(case_name)}</div>"
         f"<div class='arg-body'>{escape(summary or '-')}</div>"
         f"<div class='arg-muted'><b>WS relevance:</b> {escape(relevance or '-')}</div>"
@@ -1084,7 +1408,7 @@ def render_theme_store(theme_store_json: Optional[Dict[str, Any]]) -> None:
 # ---------------------------------------------------------------------------
 
 def render_corpus_theme_store() -> None:
-    corpus = aggregate_all_theme_stores(DEFAULT_THEME_STORE_DIR)
+    corpus = aggregate_all_theme_stores(DEFAULT_THEME_STORE_DIR, DEFAULT_CASE_DIR)
     paths = corpus["paths"]
     grouped = corpus["grouped"]
     theme_labels = corpus["theme_labels"]
@@ -1107,7 +1431,7 @@ def render_corpus_theme_store() -> None:
     )
 
     mc = st.columns(4)
-    mc[0].markdown(mini_card_html("Cases", str(len(paths)), f"{len(cases)} named claimants"), unsafe_allow_html=True)
+    mc[0].markdown(mini_card_html("Cases", str(len(cases)), f"{len(paths)} theme-store files"), unsafe_allow_html=True)
     mc[1].markdown(mini_card_html("Total arguments", str(n_matches), "Across all cases and themes"), unsafe_allow_html=True)
     mc[2].markdown(mini_card_html("Themes covered", str(n_themes), "Distinct themes with at least one match"), unsafe_allow_html=True)
     mc[3].markdown(mini_card_html("Win-driver arguments", str(n_win_drivers), f"{n_reinforce} reinforce-lane arguments", "good"), unsafe_allow_html=True)
@@ -1123,6 +1447,8 @@ def render_corpus_theme_store() -> None:
     all_effects = sorted({k[1] for k in grouped}, key=lambda x: EFFECT_RANK.get(x, 99))
     all_case_effects = sorted({k[2] for k in grouped}, key=lambda x: CASE_EFFECT_RANK.get(x, 99))
     all_confidences = sorted({k[3] for k in grouped}, key=lambda x: CONFIDENCE_RANK.get(x, 99))
+    all_winners = sorted({m["_winner"] for v in grouped.values() for m in v}, key=lambda x: WINNER_RANK.get(x, 99))
+    all_strengths = sorted({m["_strength"] for v in grouped.values() for m in v}, key=lambda x: STRENGTH_RANK.get(x, 99))
 
     fc1, fc2, fc3, fc4 = st.columns(4)
     with fc1:
@@ -1137,10 +1463,16 @@ def render_corpus_theme_store() -> None:
         conf_default = [v for v in ["HIGH", "MEDIUM"] if v in all_confidences]
         confidence_filter = st.multiselect("Confidence", all_confidences, default=conf_default)
 
-    search_corpus = st.text_input("Search argument summaries", value="", key="corpus_search")
+    fw1, fw2, fw3 = st.columns([1, 1, 2])
+    with fw1:
+        winner_filter = st.multiselect("Who won", all_winners, default=[])
+    with fw2:
+        strength_filter = st.multiselect("Win strength", all_strengths, default=[])
+    with fw3:
+        search_corpus = st.text_input("Search argument summaries", value="", key="corpus_search")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Apply filters
+    # Apply group-level filters (theme, effect, case_effect, confidence)
     filtered_groups = {
         k: v for k, v in grouped.items()
         if (not theme_filter or k[0] in theme_filter)
@@ -1149,10 +1481,16 @@ def render_corpus_theme_store() -> None:
         and (not confidence_filter or k[3] in confidence_filter)
     }
 
-    if search_corpus.strip():
+    # Apply per-match filters (winner, strength, search) — keeps groups that have at least one passing match
+    if winner_filter or strength_filter or search_corpus.strip():
         needle = search_corpus.strip().lower()
         filtered_groups = {
-            k: [m for m in v if needle in str(m.get("summary") or "").lower() or needle in str(m.get("relevance_to_ws") or "").lower()]
+            k: [
+                m for m in v
+                if (not winner_filter or m.get("_winner") in winner_filter)
+                and (not strength_filter or m.get("_strength") in strength_filter)
+                and (not needle or needle in str(m.get("summary") or "").lower() or needle in str(m.get("relevance_to_ws") or "").lower())
+            ]
             for k, v in filtered_groups.items()
         }
         filtered_groups = {k: v for k, v in filtered_groups.items() if v}
@@ -1192,6 +1530,8 @@ def render_corpus_theme_store() -> None:
                         m.get("relevance_to_ws") or "",
                         m.get("causal_weight_reason") or "",
                         m.get("paragraph_reference") or m.get("source_pointer") or "",
+                        winner=m.get("_winner", ""),
+                        strength=m.get("_strength", ""),
                     ),
                     unsafe_allow_html=True,
                 )
@@ -1286,6 +1626,10 @@ def _case_label_from_path(path: Path) -> str:
     return stem
 
 
+def _case_search_text(path: Path) -> str:
+    return f"{_case_label_from_path(path)} {path.name}".lower()
+
+
 @st.cache_data(show_spinner=False)
 def _load_case_json_cached(path_str: str) -> Dict[str, Any]:
     with open(path_str, "r", encoding="utf-8") as f:
@@ -1304,13 +1648,29 @@ def render_single_case_tab() -> None:
         st.error(f"No JSON files found in {DEFAULT_AGGREGATION_DIR}")
         return
 
+    case_filter = st.text_input(
+        "Filter by case name",
+        value="",
+        placeholder="Start typing a party, filename, or case keyword...",
+    ).strip().lower()
+    filtered_case_paths = [
+        path for path in case_paths
+        if not case_filter or case_filter in _case_search_text(path)
+    ]
+
+    if not filtered_case_paths:
+        st.info(f"No cases match '{case_filter}'.")
+        return
+
+    st.caption(f"Showing {len(filtered_case_paths)} of {len(case_paths)} case files.")
+
     case_idx = st.selectbox(
         "Select case",
-        range(len(case_paths)),
-        format_func=lambda i: _case_label_from_path(case_paths[i]),
+        range(len(filtered_case_paths)),
+        format_func=lambda i: _case_label_from_path(filtered_case_paths[i]),
         label_visibility="collapsed",
     )
-    case_path = case_paths[case_idx]
+    case_path = filtered_case_paths[case_idx]
 
     agg_idx = matched_aggregation_index(case_path, aggregation_paths)
     aggregation_path = aggregation_paths[agg_idx]
@@ -1348,21 +1708,25 @@ def render_single_case_tab() -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    st.set_page_config(
-        page_title="Calibrator Monitor",
-        layout="wide",
-        initial_sidebar_state="collapsed",
-    )
+def main(configure_page: bool = True) -> None:
+    if configure_page:
+        st.set_page_config(
+            page_title="Calibrator Monitor",
+            layout="wide",
+            initial_sidebar_state="collapsed",
+        )
     inject_styles()
 
-    tab_single, tab_corpus = st.tabs(["Single Case", "Argument Library"])
+    tab_corpus, tab_single, tab_runner = st.tabs(["Argument Library", "Single Case", "Runner"])
+
+    with tab_corpus:
+        render_corpus_theme_store()
 
     with tab_single:
         render_single_case_tab()
 
-    with tab_corpus:
-        render_corpus_theme_store()
+    with tab_runner:
+        render_runner_tab()
 
 
 if __name__ == "__main__":

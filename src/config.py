@@ -1,11 +1,18 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
+import re
 
 def default_require_temperature_support(model_name: str) -> bool:
     """GPT-5 family models may require provider-default temperature."""
     normalized = model_name.strip().lower()
     return not normalized.startswith("gpt-5")
+
+def safe_model_output_name(model_name: str) -> str:
+    """Create a stable folder name for artifacts produced by an LLM model."""
+    normalized = (model_name or "").strip()
+    normalized = re.sub(r"[^A-Za-z0-9._-]+", "_", normalized)
+    return normalized.strip("._-") or "unknown_model"
 
 @dataclass
 class Config:
@@ -17,6 +24,7 @@ class Config:
     dictionary_path: Path
     ws_tagging_prompt_path: Path
     run_ws: bool
+    reuse_existing_ws_tagging: bool
     ws_tagging_summary_path: Path
     calibration_prompt_path: Path
     compression_prompt_path: Path
@@ -32,6 +40,7 @@ class Config:
     max_tokens: int
     request_timeout_seconds: int
     request_max_retries: int
+    max_parallel_cases: int
     max_repair_attempts: int
     max_outcome_repair_attempts: int
     continue_on_case_error: bool
@@ -51,7 +60,8 @@ class Config:
 
     @classmethod
     def default(cls, run_id: str) -> 'Config':
-        project_root = Path("/home/hello/Projects/Calibrator")
+        project_root = Path(__file__).resolve().parents[1]
+        model_name = "gpt-5.5"
         return cls(
             project_root=project_root,
             ws_path=project_root / "input" / "ws" / "witness_statement.pdf",
@@ -61,21 +71,23 @@ class Config:
             dictionary_path=project_root / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_2_final.json",
             ws_tagging_prompt_path=project_root / "input" / "prompts" / "ws_tagging_prompt.txt",
             run_ws=True,
+            reuse_existing_ws_tagging=True,
             ws_tagging_summary_path=project_root / "output" / "ws_tagging" / "20260504_141009_ws_tagging_summary.json",
             calibration_prompt_path=project_root / "input" / "prompts" / "calibration_prompt.txt",
             compression_prompt_path=project_root / "input" / "prompts" / "compression_prompt.txt",
             repair_prompt_path=project_root / "input" / "prompts" / "repair_prompt.txt",
             outcome_optimization_prompt_path=project_root / "input" / "prompts" / "outcome_optimization_prompt.txt",
             outcome_repair_prompt_path=project_root / "input" / "prompts" / "outcome_repair_prompt.txt",
-            output_root=project_root / "output",
+            output_root=project_root / "output" / safe_model_output_name(model_name),
             cache_root=project_root / "output" / "cache",
-            model_name="gpt-4.1-mini",
+            model_name=model_name,
             api_provider="openai",
             temperature=0.0,
-            require_temperature_support=True,
+            require_temperature_support=default_require_temperature_support(model_name),
             max_tokens=12000,
             request_timeout_seconds=600,
             request_max_retries=1,
+            max_parallel_cases=5,
             max_repair_attempts=3,
             max_outcome_repair_attempts=1,
             continue_on_case_error=True,

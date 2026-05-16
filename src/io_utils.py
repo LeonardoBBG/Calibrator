@@ -1,8 +1,10 @@
 import json
+import os
 import re
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Iterable, TYPE_CHECKING
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from config import Config
@@ -36,17 +38,34 @@ def read_json(path: Path) -> Any:
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
+def _temporary_sibling_path(path: Path) -> Path:
+    return path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+
 def write_json(path: Path, data: Any, validate_reload: bool = False) -> None:
-    """Write dict to JSON file, optionally validate reload."""
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    """Write dict to JSON file atomically, optionally validate reload."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = _temporary_sibling_path(path)
+    try:
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
     if validate_reload:
         with open(path, 'r', encoding='utf-8') as f:
             json.load(f)
 
 def write_text(path: Path, text: str) -> None:
-    """Write text to file."""
-    path.write_text(text, encoding='utf-8')
+    """Write text to file atomically."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = _temporary_sibling_path(path)
+    try:
+        temp_path.write_text(text, encoding='utf-8')
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 def make_run_id() -> str:
     """Generate a timestamp-based run ID."""

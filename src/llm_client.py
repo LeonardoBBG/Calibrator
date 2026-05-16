@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
 DEFAULT_REQUEST_MAX_RETRIES = 1
@@ -54,8 +55,14 @@ class LLMClient:
 
         if cache_path is not None:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                json.dump(response, f, indent=2, ensure_ascii=False)
+            temp_path = cache_path.with_name(f".{cache_path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+            try:
+                with open(temp_path, 'w', encoding='utf-8') as f:
+                    json.dump(response, f, indent=2, ensure_ascii=False)
+                os.replace(temp_path, cache_path)
+            finally:
+                if temp_path.exists():
+                    temp_path.unlink()
         return response
 
     def _cache_path(self, system_prompt: str, user_payload: Dict) -> Optional[Path]:
@@ -195,8 +202,14 @@ class LLMClient:
                         "Set MODEL_NAME in the first notebook cell to a valid OpenAI model "
                         "that supports Chat Completions, such as 'gpt-4.1-mini'."
                     ) from exc
+                if exc.code in {429, 500, 502, 503, 504} and attempt < attempts:
+                    time.sleep(self.request_retry_delay_seconds)
+                    continue
                 raise RuntimeError(f"API request failed with HTTP {exc.code}: {error_body}") from exc
             except URLError as exc:
+                if attempt < attempts:
+                    time.sleep(self.request_retry_delay_seconds)
+                    continue
                 raise RuntimeError(f"API request failed: {exc.reason}") from exc
             except TimeoutError as exc:
                 if attempt < attempts:

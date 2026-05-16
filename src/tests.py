@@ -234,6 +234,39 @@ def test_prepare_ws_tagging_loads_existing_summary():
         assert not (config.output_root / "ws_tagging").exists()
     print("WS tagging summary load test passed")
 
+def test_prepare_ws_tagging_reuses_existing_summary_before_llm():
+    """Test run_ws=True still reuses a local summary before making a WS LLM call."""
+    import tempfile
+    from types import SimpleNamespace
+    from .io_utils import write_json
+    from .main import prepare_ws_tagging
+
+    class ExplodingLLMClient:
+        def complete_json(self, system_prompt, user_payload):
+            raise AssertionError("WS tagging should have reused the existing summary")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        summary_path = temp_root / "existing_summary.json"
+        expected = {
+            "theme_presence_by_id": {"T01_ROLE_EVOLUTION": "PRESENT"},
+            "recommended_action_by_id": {"T01_ROLE_EVOLUTION": "REINFORCE"},
+        }
+        write_json(summary_path, expected)
+        config = SimpleNamespace(
+            run_ws=True,
+            reuse_existing_ws_tagging=True,
+            ws_tagging_summary_path=summary_path,
+            output_root=temp_root / "output",
+            validate_json_writes=True,
+        )
+
+        actual = prepare_ws_tagging(config, "TEST_RUN", "ws text", {}, "prompt", ExplodingLLMClient())
+
+        assert actual == expected
+        assert not (config.output_root / "ws_tagging").exists()
+    print("WS tagging reuse-before-LLM test passed")
+
 def test_prepare_ws_tagging_runs_and_writes_summary():
     """Test run_ws=True writes exactly the full WS tagging and derived summary."""
     import tempfile
@@ -387,6 +420,72 @@ def test_judgment_path_selection():
         assert config.selected_judgment_paths() == [first, second]
 
     print("Judgment path selection test passed")
+
+def test_run_inventory_blocks_existing_downstream_json():
+    """Test per-case downstream JSON blocks reruns for matching PDFs."""
+    import tempfile
+    from .io_utils import write_json
+    from .run_inventory import get_judgment_run_status
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        pdf_path = temp_root / "input" / "judgments" / "case_one.pdf"
+        output_root = temp_root / "output"
+        pdf_path.parent.mkdir(parents=True)
+        pdf_path.write_bytes(b"%PDF-1.4")
+
+        raw_dir = output_root / "calibration_raw"
+        raw_dir.mkdir(parents=True)
+        write_json(raw_dir / "RUN_case_one_calibration_raw.json", {"ok": True})
+
+        partial_status = get_judgment_run_status(pdf_path, output_root)
+        assert partial_status.status == "blocked_partial"
+        assert partial_status.runnable is False
+
+        outcome_dir = output_root / "outcome_optimized"
+        outcome_dir.mkdir(parents=True)
+        write_json(outcome_dir / "RUN_case_one_outcome_optimized.json", {"ok": True})
+
+        complete_status = get_judgment_run_status(pdf_path, output_root)
+        assert complete_status.status == "complete"
+        assert complete_status.runnable is False
+
+    print("Run inventory downstream JSON guard test passed")
+
+def test_run_calibrator_skips_existing_artifacts_before_shared_input_load():
+    """Test the runner exits before loading shared inputs when selected PDFs are already run."""
+    import tempfile
+    from .config import Config
+    from .io_utils import write_json
+    from .main import run_calibrator
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        pdf_path = temp_root / "input" / "judgments" / "case_one.pdf"
+        output_root = temp_root / "output"
+        pdf_path.parent.mkdir(parents=True)
+        pdf_path.write_bytes(b"%PDF-1.4")
+
+        raw_dir = output_root / "calibration_raw"
+        raw_dir.mkdir(parents=True)
+        write_json(raw_dir / "RUN_case_one_calibration_raw.json", {"ok": True})
+
+        config = Config.default("TEST_RUN")
+        config.project_root = temp_root
+        config.ws_path = temp_root / "missing_ws.pdf"
+        config.judgment_path = pdf_path
+        config.judgments_dir = pdf_path.parent
+        config.run_mode = "debug"
+        config.output_root = output_root
+        config.cache_root = output_root / "cache"
+
+        result = run_calibrator(config)
+
+        assert result["processed_case_count"] == 0
+        assert result["skipped_case_count"] == 1
+        assert result["skipped_cases"][0]["status"] == "blocked_partial"
+
+    print("Run calibrator skip-before-load test passed")
 
 def test_default_require_temperature_support():
     """Test model-aware temperature policy defaults."""
@@ -894,6 +993,7 @@ if __name__ == "__main__":
     test_json_reload()
     test_run_scope_slug_preserves_single_case_name()
     test_prepare_ws_tagging_loads_existing_summary()
+    test_prepare_ws_tagging_reuses_existing_summary_before_llm()
     test_prepare_ws_tagging_runs_and_writes_summary()
     test_record_case_failure_writes_review_artifact()
     test_llm_cache()
