@@ -417,7 +417,18 @@ def test_judgment_path_selection():
 
         config.run_mode = "batch"
         config.judgments_dir = batch_dir
+        config.judgment_index_path = batch_dir / "missing_index.csv"
         assert config.selected_judgment_paths() == [first, second]
+
+        index = batch_dir / "moltie_judgment_index.csv"
+        index.write_text(
+            "rank,judgment_pdf_path,composite_pct,percentile_rank\n"
+            f"1,{second},98.2,99.9\n"
+            f"2,{first},74.1,88.5\n",
+            encoding="utf-8",
+        )
+        config.judgment_index_path = index
+        assert config.selected_judgment_paths() == [second, first]
 
     print("Judgment path selection test passed")
 
@@ -425,7 +436,7 @@ def test_run_inventory_blocks_existing_downstream_json():
     """Test per-case downstream JSON blocks reruns for matching PDFs."""
     import tempfile
     from .io_utils import write_json
-    from .run_inventory import get_judgment_run_status
+    from .run_inventory import claim_judgment_run, get_judgment_run_status, release_judgment_run_claim
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
@@ -449,6 +460,19 @@ def test_run_inventory_blocks_existing_downstream_json():
         complete_status = get_judgment_run_status(pdf_path, output_root)
         assert complete_status.status == "complete"
         assert complete_status.runnable is False
+
+        other_pdf = temp_root / "input" / "judgments" / "case_two.pdf"
+        other_pdf.write_bytes(b"%PDF-1.4")
+        claim_path = claim_judgment_run(other_pdf, output_root, "RUN_A")
+        assert claim_path is not None
+        in_progress_status = get_judgment_run_status(other_pdf, output_root)
+        assert in_progress_status.status == "in_progress"
+        assert in_progress_status.runnable is False
+        assert claim_judgment_run(other_pdf, output_root, "RUN_B") is None
+        release_judgment_run_claim(claim_path)
+        ready_status = get_judgment_run_status(other_pdf, output_root)
+        assert ready_status.status == "not_run"
+        assert ready_status.runnable is True
 
     print("Run inventory downstream JSON guard test passed")
 
@@ -962,18 +986,17 @@ def test_theme_store_builds_batch_review_outputs():
 
     bundle = build_theme_store(aggregation, [outcome_case], {0: "case_outcome_optimized.json"})
     theme = bundle["theme_store"]["T11_SHORT_NOTICE_PROCEDURAL_PREJUDICE"]
-    reinforce_matches = theme["action_lanes"]["REINFORCE"]["subthemes"]["missing_particulars"]["matches"]
-    review_matches = theme["action_lanes"]["REVIEW_MANUALLY"]["subthemes"]["missing_particulars"]["matches"]
+    reinforce_matches = theme["groups"]["REINFORCE|WIN_DRIVER|HIGH"]["matches"]
+    review_matches = theme["groups"]["REVIEW_MANUALLY|NEUTRAL_CONTEXT|HIGH"]["matches"]
 
-    assert theme["n_matches"] == 2
-    assert len(bundle["duplicates"]) == 1
+    assert theme["n_matches"] == 3
     assert reinforce_matches[0]["rank_score"] == 1.0
     assert reinforce_matches[0]["source_pointer"] == "judgment paragraphs: 27, 28"
-    assert review_matches[0]["action_lane"] == "REVIEW_MANUALLY"
-    assert bundle["theme_summary"][0]["number_of_matches"] == 2
-    assert bundle["theme_summary"][0]["number_of_action_lanes"] == 2
-    assert len(bundle["review_queue"]) == 2
-    assert len(bundle["top_matches_per_theme"]) == 2
+    assert review_matches[0]["effect"] == "REVIEW_MANUALLY"
+    assert bundle["theme_summary"][0]["number_of_matches"] == 3
+    assert bundle["theme_summary"][0]["number_of_groups"] == 2
+    assert len(bundle["review_queue"]) == 3
+    assert len(bundle["top_matches_per_theme"]) == 3
 
     with tempfile.TemporaryDirectory() as temp_dir:
         paths = write_theme_store_outputs(bundle, Path(temp_dir))

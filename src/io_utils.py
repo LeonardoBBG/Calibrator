@@ -22,6 +22,7 @@ def ensure_dirs(config: "Config") -> None:
         config.output_root / "outcome_aggregation",
         config.output_root / "theme_store",
         config.output_root / "human_review_queue",
+        config.output_root / "in_progress",
         config.cache_root / "text",
         config.cache_root / "llm",
         config.output_root / "logs"

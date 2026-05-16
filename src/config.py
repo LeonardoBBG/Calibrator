@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 import re
 
 def default_require_temperature_support(model_name: str) -> bool:
@@ -20,6 +20,7 @@ class Config:
     ws_path: Path
     judgment_path: Path
     judgments_dir: Path
+    judgment_index_path: Path
     run_mode: str
     dictionary_path: Path
     ws_tagging_prompt_path: Path
@@ -49,12 +50,34 @@ class Config:
     ocr_enabled: bool
     debug: bool
     run_id: str
+    max_per_percentile_band: Optional[int] = None
+    per_band_caps: Optional[Dict[str, int]] = None
 
     def selected_judgment_paths(self) -> List[Path]:
         """Return judgment PDFs for the configured run mode."""
         if self.run_mode == "debug":
             return [self.judgment_path]
         if self.run_mode == "batch":
+            if self.judgment_index_path and self.judgment_index_path.exists():
+                from .run_inventory import (
+                    load_judgment_index_paths,
+                    load_judgment_index_paths_capped_by_band,
+                    load_judgment_index_paths_with_band_caps,
+                )
+                per_caps = self.per_band_caps
+                max_per_band = self.max_per_percentile_band
+                if per_caps:
+                    indexed_paths = load_judgment_index_paths_with_band_caps(
+                        self.judgment_index_path, per_caps
+                    )
+                elif max_per_band and int(max_per_band) > 0:
+                    indexed_paths = load_judgment_index_paths_capped_by_band(
+                        self.judgment_index_path, int(max_per_band)
+                    )
+                else:
+                    indexed_paths = load_judgment_index_paths(self.judgment_index_path)
+                if indexed_paths:
+                    return indexed_paths
             return sorted(self.judgments_dir.glob("*.pdf"))
         raise ValueError("run_mode must be 'debug' or 'batch'")
 
@@ -67,6 +90,7 @@ class Config:
             ws_path=project_root / "input" / "ws" / "witness_statement.pdf",
             judgment_path=project_root / "input" / "judgments" / "Mr_B_Burke_v_Thomas_Contracting_Ltd_and_Thomas_Plant_Hire_Ltd_-_2414977_2018_-_Reserved.pdf",
             judgments_dir=project_root / "input" / "judgments",
+            judgment_index_path=project_root / "input" / "judgments" / "moltie_judgment_index.csv",
             run_mode="debug",
             dictionary_path=project_root / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_2_final.json",
             ws_tagging_prompt_path=project_root / "input" / "prompts" / "ws_tagging_prompt.txt",
@@ -97,3 +121,13 @@ class Config:
             debug=False,
             run_id=run_id
         )
+
+    @classmethod
+    def uat(cls, run_id: str) -> 'Config':
+        """UAT config: same inputs and shared LLM cache as PROD, isolated output directory."""
+        cfg = cls.default(run_id)
+        cfg.output_root = cfg.project_root / "output" / "uat" / safe_model_output_name(cfg.model_name)
+        # Clear the hardcoded PROD ws_tagging path; the pipeline will auto-discover
+        # the newest summary from the UAT output root instead.
+        cfg.ws_tagging_summary_path = None
+        return cfg

@@ -1,3 +1,4 @@
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -16,8 +17,32 @@ from .compression_runner import count_reinforcement_clusters, run_compression
 from .outcome_aggregation import aggregate_outcome_optimized_cases
 from .outcome_runner import repair_outcome_optimization, run_outcome_optimization
 from .outcome_validators import validate_outcome_optimized_calibration
-from .run_inventory import plan_judgment_run
+from .run_inventory import (
+    claim_judgment_run,
+    get_judgment_run_status,
+    plan_judgment_run,
+    refresh_judgment_index_statuses,
+    release_judgment_run_claim,
+)
 from .theme_store import build_theme_store, write_theme_store_outputs
+
+
+def _load_all_outcome_optimized_from_disk(output_root: Path):
+    """Load every outcome_optimized JSON in output_root, returning (cases, filename_map).
+    Used to build a unified all-cases aggregation after any batch or retry run."""
+    oo_dir = output_root / "outcome_optimized"
+    if not oo_dir.exists():
+        return [], {}
+    cases, filenames = [], {}
+    for path in sorted(oo_dir.glob("*.json")):
+        try:
+            data = read_json(path)
+        except Exception:
+            continue
+        filenames[len(cases)] = path.name
+        cases.append(data)
+    return cases, filenames
+
 
 def build_llm_client(config):
     """Create an LLM client for one independent worker."""
@@ -216,6 +241,14 @@ def process_judgment_case(
     case_slug = make_source_slug(judgment_path)
     stage = "load_judgment_text"
     llm_client = build_llm_client(config)
+    sentinel_path = claim_judgment_run(judgment_path, config.output_root, run_id)
+    if sentinel_path is None:
+        return {
+            "ok": False,
+            "skipped": True,
+            "case_slug": case_slug,
+            "skip_status": get_judgment_run_status(judgment_path, config.output_root),
+        }
     try:
         judgment_text = load_text(judgment_path, config.cache_root / "text", config.cache_enabled)
         write_text(config.output_root / "extracted_text" / f"{run_id}_{case_slug}_text.txt", judgment_text)
@@ -373,6 +406,8 @@ def process_judgment_case(
             "case_slug": case_slug,
             "failure": failure,
         }
+    finally:
+        release_judgment_run_claim(sentinel_path)
 
 
 def _parallel_worker_count(config, judgment_count):
@@ -387,6 +422,10 @@ def run_calibrator(config: Config) -> dict:
     run_id = config.run_id
     ensure_dirs(config)
 
+    initial_index_refresh = None
+    if getattr(config, "judgment_index_path", None) and config.judgment_index_path.exists():
+        initial_index_refresh = refresh_judgment_index_statuses(config.judgment_index_path, config.output_root)
+
     selected_judgment_paths = config.selected_judgment_paths()
     if not selected_judgment_paths:
         raise ValueError(f"No judgment PDFs found for run_mode={config.run_mode}")
@@ -395,6 +434,7 @@ def run_calibrator(config: Config) -> dict:
         selected_judgment_paths,
         config.output_root,
     )
+
     if not judgment_paths:
         return {
             "run_id": run_id,
@@ -419,6 +459,7 @@ def run_calibrator(config: Config) -> dict:
             "theme_store_dir": None,
             "per_case_outcome_aggregation_paths": [],
             "per_case_theme_store_dirs": [],
+            "judgment_index_refresh": initial_index_refresh,
         }
 
     # Load shared inputs once. These do not vary across judgments in a batch.
@@ -507,7 +548,9 @@ def run_calibrator(config: Config) -> dict:
     for result in case_results:
         if not result:
             continue
-        if result["ok"]:
+        if result.get("skipped"):
+            skipped_statuses.append(result["skip_status"])
+        elif result["ok"]:
             per_case_artifacts.append(result["case_artifacts"])
             outcome_source_filenames[len(outcome_optimized_cases)] = result["outcome_filename"]
             outcome_optimized_cases.append(result["outcome_optimized"])
@@ -517,15 +560,20 @@ def run_calibrator(config: Config) -> dict:
             failed_cases.append(result["failure"])
 
     if outcome_optimized_cases:
-        aggregate_slug = make_run_scope_slug(run_id, successful_case_slugs)
-        aggregation = aggregate_outcome_optimized_cases(outcome_optimized_cases, dictionary)
+        # Aggregate ALL outcome_optimized files in the output root so that every run — including
+        # retries — produces a single unified corpus rather than a per-run subset.
+        all_cases, all_filenames = _load_all_outcome_optimized_from_disk(config.output_root)
+        if not all_cases:
+            all_cases, all_filenames = outcome_optimized_cases, outcome_source_filenames
+        aggregate_slug = f"{run_id}_batch_{len(all_cases)}_cases"
+        aggregation = aggregate_outcome_optimized_cases(all_cases, dictionary)
         outcome_aggregation_path = config.output_root / "outcome_aggregation" / f"{aggregate_slug}_outcome_aggregation.json"
         write_json(
             outcome_aggregation_path,
             aggregation,
             validate_reload=config.validate_json_writes
         )
-        theme_store_bundle = build_theme_store(aggregation, outcome_optimized_cases, outcome_source_filenames)
+        theme_store_bundle = build_theme_store(aggregation, all_cases, all_filenames)
         theme_store_dir = config.output_root / "theme_store" / aggregate_slug
         write_theme_store_outputs(theme_store_bundle, theme_store_dir)
     else:
@@ -543,6 +591,10 @@ def run_calibrator(config: Config) -> dict:
             },
             validate_reload=config.validate_json_writes
         )
+
+    index_refresh = None
+    if getattr(config, "judgment_index_path", None) and config.judgment_index_path.exists():
+        index_refresh = refresh_judgment_index_statuses(config.judgment_index_path, config.output_root)
 
     print(f"Run mode: {config.run_mode}")
     print(f"Judgments processed: {len(summaries)}")
@@ -583,12 +635,18 @@ def run_calibrator(config: Config) -> dict:
             item["theme_store_dir"]
             for item in per_case_artifacts
         ],
+        "judgment_index_refresh": index_refresh,
     }
 
 
 def main():
     run_id = make_run_id()
-    config = Config.default(run_id)
+    env = os.environ.get("FATE_ENV", "prod").lower()
+    if env == "uat":
+        config = Config.uat(run_id)
+        print(f"[UAT] output_root: {config.output_root}")
+    else:
+        config = Config.default(run_id)
     run_calibrator(config)
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ Employment Tribunal witness-statement calibration pipeline.
 ## What This Repository Contains
 
 - Python pipeline code in `src/`
-- Notebook runner in `pipeline.ipynb`
+- Streamlit runner/review app in `streamlit_single_case_monitor.py`
 - Controlled theme dictionary in `input/dictionary/`
 - Prompts in `input/prompts/`
 
@@ -28,20 +28,29 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Open `pipeline.ipynb`, set the execution controls in the first code cell, and run from the top.
+Start the Streamlit app:
 
-The notebook has explicit input bounds. Judgments above `WARN_JUDGMENT_CHARS` print a token-use warning; judgments above `MAX_JUDGMENT_CHARS` stop before making the calibration API call.
+```bash
+streamlit run streamlit_single_case_monitor.py
+```
 
 ## Judgment Input Modes
 
-The notebook supports two flows:
+The Streamlit runner supports two flows:
 
-- `RUN_MODE = "debug"` processes one explicit judgment file from `DEBUG_JUDGMENT_PATH`.
-- `RUN_MODE = "batch"` processes every `*.pdf` in `BATCH_JUDGMENTS_DIR`.
+- `Per doc` processes one runnable judgment.
+- `Batch` processes runnable judgments from `input/judgments/moltie_judgment_index.csv` when present, otherwise every `*.pdf` in `input/judgments/`.
+
+If `input/judgments/moltie_judgment_index.csv` exists, batch mode uses that
+Moltie-generated index instead of requiring PDFs to be copied into
+`input/judgments/`. The index stores the external PDF path, Moltie composite
+rank/percentile columns, and Calibrator processing state. Before any API work,
+the runner re-checks existing downstream artifacts and skips judgments whose
+final output already exists.
 
 The WS statement and controlled dictionary do not vary across a batch. They are loaded once, and WS tagging is run once. The per-judgment loop only extracts each judgment, runs calibration/repair/compression, and saves outputs using the original judgment filename stem.
 
-The notebook prompts for `OPENAI_API_KEY` when `RUN_LLM = True` and the key is not already set.
+The Streamlit runner accepts `OPENAI_API_KEY` in the run settings, or uses the key already set in the environment.
 
 ## WS Baseline
 
@@ -61,10 +70,10 @@ Text extraction is cached by source file path, size, and modified time. LLM resp
 
 Outputs accumulate under `output/` by artifact type: `extracted_text/`, `ws_tagging/`, `calibration_raw/`, `calibration_repaired/`, `calibration_validated/`, `compression/`, `outcome_optimized/`, `outcome_aggregation/`, `theme_store/`, and `human_review_queue/`. Batch mode produces per-judgment calibration, compression, and outcome artifacts, plus batch-level outcome aggregation and theme-store review exports when outcome optimization succeeds.
 
-`output/theme_store/{run_id}/` is deterministic. It uses `outcome_aggregation` as the theme index and `outcome_optimized` case files as the match items, then writes `theme_store.json`, `theme_summary.csv`, `review_queue.csv`, and `top_matches_per_theme.csv`. It groups each theme by action lane before subtheme, so `T17_COMPARATOR_TREATMENT / REINFORCE` and `T17_COMPARATOR_TREATMENT / REVIEW_MANUALLY` remain separate review buckets. It does not make any LLM calls.
+`output/theme_store/{run_id}/` is deterministic. It uses `outcome_aggregation` as the theme index and `outcome_optimized` case files as the match items, then writes `theme_store.json`, `theme_summary.csv`, `review_queue.csv`, and `top_matches_per_theme.csv`. It groups each theme by (effect, case effect, confidence), so `T17_COMPARATOR_TREATMENT / REINFORCE / WIN_DRIVER / HIGH` and `T17_COMPARATOR_TREATMENT / REVIEW_MANUALLY / NEUTRAL_CONTEXT / HIGH` remain separate review buckets. It does not make any LLM calls.
 
 ## Model Temperature
 
 The default configuration uses `temperature = 0.0` for models that support it. This is intentional for stable JSON calibration.
 
-The notebook derives `REQUIRE_TEMPERATURE_SUPPORT` from `MODEL_NAME`. GPT-5.x models default to provider temperature because they may reject explicit temperature settings; other models require low-temperature support by default.
+The runner derives `require_temperature_support` from the configured model name. GPT-5.x models default to provider temperature because they may reject explicit temperature settings; other models require low-temperature support by default.
