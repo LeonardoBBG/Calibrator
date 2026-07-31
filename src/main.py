@@ -27,7 +27,38 @@ from .run_inventory import (
 from .theme_store import build_theme_store, write_theme_store_outputs
 
 
-def _load_all_outcome_optimized_from_disk(output_root: Path):
+def _calibration_dictionary_metadata(compact_dict):
+    metadata = (compact_dict or {}).get("dictionary_metadata", {})
+    return {
+        "dictionary_name": metadata.get("dictionary_name"),
+        "version": metadata.get("version"),
+        "payload_sha256": metadata.get("payload_sha256"),
+    }
+
+
+def _annotate_calibration_dictionary(calibration, compact_dict):
+    metadata = _calibration_dictionary_metadata(compact_dict)
+    if not metadata.get("payload_sha256"):
+        return calibration
+    calibration.setdefault("quality_control", {})
+    calibration["quality_control"]["dictionary_metadata"] = metadata
+    return calibration
+
+
+def _calibration_matches_dictionary(calibration, compact_dict):
+    expected = _dictionary_payload_id(compact_dict)
+    if not expected:
+        return True
+    actual = (
+        (calibration or {})
+        .get("quality_control", {})
+        .get("dictionary_metadata", {})
+        .get("payload_sha256")
+    )
+    return actual == expected
+
+
+def _load_all_outcome_optimized_from_disk(output_root: Path, compact_dict=None):
     """Load every outcome_optimized JSON in output_root, returning (cases, filename_map).
     Used to build a unified all-cases aggregation after any batch or retry run."""
     oo_dir = output_root / "outcome_optimized"
@@ -38,6 +69,9 @@ def _load_all_outcome_optimized_from_disk(output_root: Path):
         try:
             data = read_json(path)
         except Exception:
+            continue
+        if not _calibration_matches_dictionary(data, compact_dict):
+            print(f"Skipping outcome file from different dictionary: {path.name}")
             continue
         filenames[len(cases)] = path.name
         cases.append(data)
@@ -85,7 +119,35 @@ def latest_ws_tagging_artifact_path(output_root: Path):
     return artifacts[0] if artifacts else None
 
 
-def load_reusable_ws_tagging_summary(config, run_id):
+def _dictionary_payload_id(compact_dict):
+    return (compact_dict or {}).get("dictionary_metadata", {}).get("payload_sha256")
+
+
+def _summary_matches_dictionary(summary, compact_dict):
+    expected = _dictionary_payload_id(compact_dict)
+    if not expected:
+        return True
+    actual = (summary or {}).get("dictionary_metadata", {}).get("payload_sha256")
+    return actual == expected
+
+
+def _annotate_ws_tagging_dictionary(ws_tagging, compact_dict):
+    metadata = {
+        key: value
+        for key, value in (compact_dict or {}).get("dictionary_metadata", {}).items()
+        if key in {"dictionary_name", "version", "payload_sha256"}
+    }
+    if not metadata:
+        return ws_tagging
+    # Keep both locations: older consumers read the top-level field, while
+    # newer audit views expect dictionary details under ws_tagging_metadata.
+    ws_tagging.setdefault("dictionary_metadata", metadata)
+    ws_tagging.setdefault("ws_tagging_metadata", {})
+    ws_tagging["ws_tagging_metadata"]["dictionary_metadata"] = metadata
+    return ws_tagging
+
+
+def load_reusable_ws_tagging_summary(config, run_id, compact_dict=None):
     """Load a local WS summary, or derive one from a local full WS tagging artifact."""
     candidates = []
     latest_summary = latest_ws_tagging_summary_path(config.output_root)
@@ -106,20 +168,29 @@ def load_reusable_ws_tagging_summary(config, run_id):
             if resolved not in seen:
                 seen.add(resolved)
                 unique_candidates.append(path)
-        summary_path = sorted(
+        summary_paths = sorted(
             unique_candidates,
             key=lambda path: path.stat().st_mtime,
             reverse=True,
-        )[0]
-        print(f"Using existing WS tagging summary: {summary_path}")
-        return read_json(summary_path)
+        )
+        for summary_path in summary_paths:
+            summary = read_json(summary_path)
+            if _summary_matches_dictionary(summary, compact_dict):
+                print(f"Using existing WS tagging summary: {summary_path}")
+                return summary
+            print(f"Skipping WS tagging summary from different dictionary: {summary_path}")
 
     full_artifact_path = latest_ws_tagging_artifact_path(config.output_root)
     if full_artifact_path is None:
         return None
 
+    ws_tagging = read_json(full_artifact_path)
+    if not _summary_matches_dictionary(ws_tagging, compact_dict):
+        print(f"Skipping WS tagging artifact from different dictionary: {full_artifact_path}")
+        return None
+
     print(f"Using existing WS tagging artifact: {full_artifact_path}")
-    ws_tagging_summary = build_ws_tagging_summary(read_json(full_artifact_path))
+    ws_tagging_summary = build_ws_tagging_summary(ws_tagging, compact_dict)
     write_json(
         config.output_root / "ws_tagging" / f"{run_id}_ws_tagging_summary.json",
         ws_tagging_summary,
@@ -132,14 +203,15 @@ def prepare_ws_tagging(config, run_id, ws_text, compact_dict, ws_tagging_prompt,
     """Run WS tagging for this run, or load a previously saved WS summary."""
     if config.run_ws:
         if getattr(config, "reuse_existing_ws_tagging", True):
-            reusable_summary = load_reusable_ws_tagging_summary(config, run_id)
+            reusable_summary = load_reusable_ws_tagging_summary(config, run_id, compact_dict)
             if reusable_summary is not None:
                 return reusable_summary
 
         if llm_client is None:
             llm_client = build_llm_client(config)
         ws_tagging = run_ws_tagging(ws_text, compact_dict, ws_tagging_prompt, llm_client)
-        ws_tagging_summary = build_ws_tagging_summary(ws_tagging)
+        ws_tagging = _annotate_ws_tagging_dictionary(ws_tagging, compact_dict)
+        ws_tagging_summary = build_ws_tagging_summary(ws_tagging, compact_dict)
         write_json(
             config.output_root / "ws_tagging" / f"{run_id}_ws_tagging.json",
             ws_tagging,
@@ -152,7 +224,7 @@ def prepare_ws_tagging(config, run_id, ws_text, compact_dict, ws_tagging_prompt,
         )
         return ws_tagging_summary
 
-    reusable_summary = load_reusable_ws_tagging_summary(config, run_id)
+    reusable_summary = load_reusable_ws_tagging_summary(config, run_id, compact_dict)
     if reusable_summary is not None:
         return reusable_summary
 
@@ -166,7 +238,13 @@ def prepare_ws_tagging(config, run_id, ws_text, compact_dict, ws_tagging_prompt,
             f"WS tagging summary path does not exist: {summary_path}"
         )
 
-    return read_json(summary_path)
+    summary = read_json(summary_path)
+    if not _summary_matches_dictionary(summary, compact_dict):
+        raise ValueError(
+            "WS tagging summary was built with a different dictionary payload; "
+            "run WS tagging again for the active dictionary"
+        )
+    return summary
 
 def build_case_failure(run_id, judgment_path, case_slug, stage, exc):
     """Build a serializable failure record for a judgment that could not complete."""
@@ -262,6 +340,7 @@ def process_judgment_case(
             prompts["calibration"],
             llm_client
         )
+        calibration = _annotate_calibration_dictionary(calibration, compact_dict)
         write_json(
             config.output_root / "calibration_raw" / f"{run_id}_{case_slug}_calibration_raw.json",
             calibration,
@@ -298,6 +377,7 @@ def process_judgment_case(
                 prompts["repair"],
                 llm_client
             )
+            validated_calibration = _annotate_calibration_dictionary(validated_calibration, compact_dict)
             stage = "calibration_validation"
             errors = validate_calibration_output(
                 validated_calibration,
@@ -336,6 +416,7 @@ def process_judgment_case(
             prompts["outcome_optimization"],
             llm_client
         )
+        outcome_optimized = _annotate_calibration_dictionary(outcome_optimized, compact_dict)
         stage = "outcome_validation"
         outcome_errors = validate_outcome_optimized_calibration(
             outcome_optimized,
@@ -351,6 +432,7 @@ def process_judgment_case(
                 prompts["outcome_repair"],
                 llm_client
             )
+            outcome_optimized = _annotate_calibration_dictionary(outcome_optimized, compact_dict)
             stage = "outcome_validation"
             outcome_errors = validate_outcome_optimized_calibration(
                 outcome_optimized,
@@ -562,7 +644,7 @@ def run_calibrator(config: Config) -> dict:
     if outcome_optimized_cases:
         # Aggregate ALL outcome_optimized files in the output root so that every run — including
         # retries — produces a single unified corpus rather than a per-run subset.
-        all_cases, all_filenames = _load_all_outcome_optimized_from_disk(config.output_root)
+        all_cases, all_filenames = _load_all_outcome_optimized_from_disk(config.output_root, compact_dict)
         if not all_cases:
             all_cases, all_filenames = outcome_optimized_cases, outcome_source_filenames
         aggregate_slug = f"{run_id}_batch_{len(all_cases)}_cases"

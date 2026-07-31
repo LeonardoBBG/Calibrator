@@ -12,10 +12,80 @@ from .dictionary_loader import (
 )
 from .validators import validate_calibration_output
 
+TEST_DICTIONARY_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "input"
+    / "dictionary"
+    / "WS_Controlled_Theme_Dictionary_v1_3_3.json"
+)
+
+
+def _load_test_dictionary():
+    return load_dictionary(TEST_DICTIONARY_PATH)
+
+
+def _mapped_signal(
+    *,
+    signal_id="SIG_001",
+    theme_id="T01_ROLE_EVOLUTION",
+    theme_priority=3,
+    action="REINFORCE",
+    case_effect="WIN_DRIVER",
+    ws_presence="PRESENT",
+    confidence="HIGH",
+    cross_reference_theme_ids=None,
+    scope_status="in_scope",
+    t20_reason_code=None,
+    pre_check_log=None,
+    **overrides,
+):
+    if cross_reference_theme_ids is None:
+        cross_reference_theme_ids = []
+    if pre_check_log is None and theme_id == "T01_ROLE_EVOLUTION":
+        pre_check_log = [
+            {
+                "theme_id": "T19_RETROSPECTIVE_STANDARD",
+                "reason": "The test signal concerns role history, not retrospective standard-setting.",
+            }
+        ]
+    if pre_check_log is None and theme_id == "T20_RISK_CONTROL":
+        pre_check_log = [
+            {
+                "theme_id_alias": "ALL_SUBSTANTIVE_THEMES_T01_TO_T19",
+                "reason": "No substantive unfair-dismissal theme is a better fit for this control signal.",
+            }
+        ]
+    signal = {
+        "signal_id": signal_id,
+        "signal_verbatim": "The Tribunal found a structurally relevant point.",
+        "signal_source_reference": "para 1",
+        "scope_status": scope_status,
+        "primary_theme_id": theme_id,
+        "mapped_theme_id": theme_id,
+        "theme_priority": theme_priority,
+        "action": action,
+        "recommended_action": action,
+        "case_effect": case_effect,
+        "ws_presence": ws_presence,
+        "dictionary_match_confidence": confidence,
+        "ws_anchor": "Existing WS proposition",
+        "no_external_judgment_facts_imported": True,
+        "rationale": "The signal maps to the selected controlled theme.",
+        "signal_summary": "Tribunal finding supports the claimant.",
+        "judgment_references": ["1"],
+        "relevance_to_ws": "This maps to an existing WS theme without adding judgment facts.",
+        "cross_reference_theme_ids": cross_reference_theme_ids,
+    }
+    if pre_check_log is not None:
+        signal["pre_check_log"] = pre_check_log
+    if theme_id == "T20_RISK_CONTROL":
+        signal["t20_reason_code"] = t20_reason_code or "T20_SPECULATIVE_INFERENCE"
+    signal.update(overrides)
+    return signal
+
 def test_dictionary():
     """Test dictionary loading and validation."""
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     validate_dictionary(dictionary)
     themes = dictionary['ws_theme_dictionary']
     assert len(themes) == 20
@@ -25,13 +95,43 @@ def test_dictionary():
     assert sorted(priorities) == list(range(1, 21))
     print("Dictionary test passed")
 
+def test_validate_dictionary_rejects_bad_substantive_alias():
+    """Test validate_dictionary rejects missing or incomplete ALL_SUBSTANTIVE_THEMES alias."""
+    import copy
+    dictionary = _load_test_dictionary()
+
+    missing_alias = copy.deepcopy(dictionary)
+    del missing_alias["aliases"]["definitions"]["ALL_SUBSTANTIVE_THEMES_T01_TO_T19"]
+    try:
+        validate_dictionary(missing_alias)
+        assert False, "Expected ValueError for missing alias"
+    except ValueError as exc:
+        assert "ALL_SUBSTANTIVE_THEMES_T01_TO_T19" in str(exc)
+
+    incomplete_alias = copy.deepcopy(dictionary)
+    full_alias = incomplete_alias["aliases"]["definitions"]["ALL_SUBSTANTIVE_THEMES_T01_TO_T19"]
+    incomplete_alias["aliases"]["definitions"]["ALL_SUBSTANTIVE_THEMES_T01_TO_T19"] = full_alias[:-1]
+    try:
+        validate_dictionary(incomplete_alias)
+        assert False, "Expected ValueError for incomplete alias"
+    except ValueError as exc:
+        assert "must resolve exactly" in str(exc)
+
+    print("Substantive alias validation test passed")
+
+
 def test_compact_dictionary_for_llm():
     """Test repeated LLM calls receive only required dictionary fields."""
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     compact = compact_dictionary_for_llm(dictionary)
 
     assert "global_mapping_rules" in compact
+    assert "dictionary_metadata" in compact
+    assert compact["dictionary_metadata"]["version"] == "v1.3.3"
+    assert "payload_sha256" in compact["dictionary_metadata"]
+    assert "mapping_output_schema" in compact
+    assert "action_glossary" in compact
+    assert "aliases" in compact
     assert "ws_theme_dictionary" in compact
     assert len(compact["ws_theme_dictionary"]) == 20
     first_theme = compact["ws_theme_dictionary"][0]
@@ -41,29 +141,20 @@ def test_compact_dictionary_for_llm():
     assert "exclude_when" in first_theme
     assert "duplication_guardrail" in first_theme
     assert "permitted_actions" in first_theme
-    assert "common_subthemes" not in first_theme
+    assert "common_subthemes" in first_theme
+    assert "evidence_anchor_types" in first_theme
     assert "example_mapping_language" not in first_theme
     assert len(json.dumps(compact, separators=(',', ':'))) < len(json.dumps(dictionary, separators=(',', ':')))
     print("Compact dictionary test passed")
 
 def test_fake_calibration():
     """Test validation with a fake correct calibration."""
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     fake_calibration = {
         "case_metadata": {"case_name": "Test Case"},
         "case_relevance_to_ws": {"overall_similarity_score_0_to_10": 5},
         "judgment_signals": [
-            {
-                "signal_id": "SIG_001",
-                "mapped_theme_id": "T01_ROLE_EVOLUTION",
-                "theme_priority": 3,
-                "recommended_action": "REINFORCE",
-                "case_effect": "WIN_DRIVER",
-                "ws_presence": "PRESENT",
-                "dictionary_match_confidence": "HIGH",
-                "cross_reference_theme_ids": []
-            }
+            _mapped_signal()
         ],
         "quality_control": {
             "ws_rewrite_performed": False,
@@ -77,19 +168,12 @@ def test_fake_calibration():
 
 def test_invalid_theme_id():
     """Test validation fails with unknown theme_id."""
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     invalid_calibration = {
         "case_metadata": {},
         "case_relevance_to_ws": {},
         "judgment_signals": [
-            {
-                "signal_id": "SIG_001",
-                "mapped_theme_id": "T99_FAKE",
-                "theme_priority": 3,
-                "recommended_action": "REINFORCE",
-                "case_effect": "WIN_DRIVER"
-            }
+            _mapped_signal(theme_id="T99_FAKE", pre_check_log=[])
         ],
         "quality_control": {
             "ws_rewrite_performed": False,
@@ -104,19 +188,12 @@ def test_invalid_theme_id():
 
 def test_invalid_priority():
     """Test validation fails with incorrect priority."""
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     invalid_calibration = {
         "case_metadata": {},
         "case_relevance_to_ws": {},
         "judgment_signals": [
-            {
-                "signal_id": "SIG_001",
-                "mapped_theme_id": "T01_ROLE_EVOLUTION",
-                "theme_priority": 2,  # Should be 3
-                "recommended_action": "REINFORCE",
-                "case_effect": "WIN_DRIVER"
-            }
+            _mapped_signal(theme_priority=2)  # Should be 3
         ],
         "quality_control": {
             "ws_rewrite_performed": False,
@@ -131,19 +208,12 @@ def test_invalid_priority():
 
 def test_invalid_action():
     """Test validation fails with action not permitted."""
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     invalid_calibration = {
         "case_metadata": {},
         "case_relevance_to_ws": {},
         "judgment_signals": [
-            {
-                "signal_id": "SIG_001",
-                "mapped_theme_id": "T01_ROLE_EVOLUTION",
-                "theme_priority": 3,
-                "recommended_action": "ADD FACT",  # Not permitted for T01
-                "case_effect": "WIN_DRIVER"
-            }
+            _mapped_signal(action="ADD FACT")  # Not permitted for T01
         ],
         "quality_control": {
             "ws_rewrite_performed": False,
@@ -158,20 +228,16 @@ def test_invalid_action():
 
 def test_invalid_cross_ref():
     """Test validation fails with unknown cross_ref."""
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     invalid_calibration = {
         "case_metadata": {},
         "case_relevance_to_ws": {},
         "judgment_signals": [
-            {
-                "signal_id": "SIG_001",
-                "mapped_theme_id": "T01_CONTRACT_TERMS",
-                "theme_priority": 1,
-                "recommended_action": "ADD FACT",
-                "case_effect": "WIN_DRIVER",
-                "cross_reference_theme_ids": ["T99_FAKE"]
-            }
+            _mapped_signal(
+                theme_id="T02_MANAGEMENT_DIRECTION",
+                theme_priority=4,
+                cross_reference_theme_ids=["T99_FAKE"],
+            )
         ],
         "quality_control": {
             "ws_rewrite_performed": False,
@@ -266,6 +332,57 @@ def test_prepare_ws_tagging_reuses_existing_summary_before_llm():
         assert actual == expected
         assert not (config.output_root / "ws_tagging").exists()
     print("WS tagging reuse-before-LLM test passed")
+
+
+def test_prepare_ws_tagging_skips_mismatched_dictionary_summary():
+    """Test WS tagging summaries are reused only for the active dictionary payload."""
+    import tempfile
+    from types import SimpleNamespace
+    from .io_utils import write_json
+    from .main import prepare_ws_tagging
+
+    class FakeLLMClient:
+        def complete_json(self, system_prompt, user_payload):
+            return {
+                "theme_mappings": [
+                    {
+                        "mapped_theme_id": "T01_ROLE_EVOLUTION",
+                        "theme_presence": "PRESENT",
+                        "recommended_action": "REINFORCE",
+                        "cross_reference_theme_ids": [],
+                        "mapping_rationale": "Baseline present",
+                    }
+                ]
+            }
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        output_root = temp_root / "output"
+        (output_root / "ws_tagging").mkdir(parents=True)
+        stale_summary_path = output_root / "ws_tagging" / "OLD_ws_tagging_summary.json"
+        write_json(
+            stale_summary_path,
+            {
+                "dictionary_metadata": {"payload_sha256": "stale"},
+                "theme_presence_by_id": {"T20_RISK_CONTROL": "RISK_ONLY"},
+                "recommended_action_by_id": {"T20_RISK_CONTROL": "REVIEW_MANUALLY"},
+            },
+        )
+        compact = compact_dictionary_for_llm(_load_test_dictionary())
+        config = SimpleNamespace(
+            run_ws=True,
+            reuse_existing_ws_tagging=True,
+            ws_tagging_summary_path=stale_summary_path,
+            output_root=output_root,
+            validate_json_writes=True,
+        )
+
+        summary = prepare_ws_tagging(config, "TEST_RUN", "ws text", compact, "prompt", FakeLLMClient())
+
+        assert summary["theme_presence_by_id"] == {"T01_ROLE_EVOLUTION": "PRESENT"}
+        assert summary["dictionary_metadata"]["payload_sha256"] == compact["dictionary_metadata"]["payload_sha256"]
+    print("WS tagging dictionary mismatch test passed")
+
 
 def test_prepare_ws_tagging_runs_and_writes_summary():
     """Test run_ws=True writes exactly the full WS tagging and derived summary."""
@@ -646,32 +763,16 @@ def _valid_outcome_calibration():
         "case_metadata": {"case_name": "Test Case", "case_number": "123"},
         "case_relevance_to_ws": {},
         "judgment_signals": [
-            {
-                "signal_id": "JS01",
-                "mapped_theme_id": "T01_ROLE_EVOLUTION",
-                "theme_priority": 3,
-                "recommended_action": "REINFORCE",
-                "case_effect": "WIN_DRIVER",
-                "ws_presence": "PRESENT",
-                "dictionary_match_confidence": "HIGH",
-                "signal_summary": "Tribunal finding supports the claimant.",
-                "judgment_references": ["1"],
-                "relevance_to_ws": "This maps to the role evolution theme.",
-                "cross_reference_theme_ids": []
-            },
-            {
-                "signal_id": "JS02",
-                "mapped_theme_id": "T02_MANAGEMENT_DIRECTION",
-                "theme_priority": 4,
-                "recommended_action": "REINFORCE",
-                "case_effect": "WIN_DRIVER",
-                "ws_presence": "PRESENT",
-                "dictionary_match_confidence": "HIGH",
-                "signal_summary": "Tribunal finding supports management direction.",
-                "judgment_references": ["2"],
-                "relevance_to_ws": "This maps to the management direction theme.",
-                "cross_reference_theme_ids": []
-            }
+            _mapped_signal(signal_id="JS01"),
+            _mapped_signal(
+                signal_id="JS02",
+                theme_id="T02_MANAGEMENT_DIRECTION",
+                theme_priority=4,
+                signal_source_reference="para 2",
+                judgment_references=["2"],
+                signal_summary="Tribunal finding supports management direction.",
+                relevance_to_ws="This maps to the management direction theme.",
+            )
         ],
         "outcome_optimization": {
             "factual_proximity": "ANALOGY_ONLY",
@@ -742,8 +843,7 @@ def test_outcome_validation_rules():
     from copy import deepcopy
     from .outcome_validators import validate_outcome_optimized_calibration
 
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     calibration = _valid_outcome_calibration()
 
     assert validate_outcome_optimized_calibration(calibration, dictionary) == []
@@ -775,8 +875,7 @@ def test_outcome_merge_and_aggregation():
     from .outcome_aggregation import aggregate_outcome_optimized_cases
     from .outcome_runner import merge_outcome_optimization, repair_outcome_optimization
 
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     calibration = _valid_outcome_calibration()
     base = {
         key: value
@@ -811,19 +910,20 @@ def test_outcome_merge_and_aggregation():
     assert aggregation["ws_optimization_mapping"]["status"] == "blocked_until_ws_theme_anchor_map"
 
     risk_case = deepcopy(calibration)
-    risk_case["judgment_signals"].append({
-        "signal_id": "JS03",
-        "mapped_theme_id": "T20_RISK_CONTROL",
-        "theme_priority": 20,
-        "recommended_action": "DO_NOT_USE",
-        "case_effect": "NON_TRANSFERABLE",
-        "ws_presence": "ABSENT",
-        "dictionary_match_confidence": "MEDIUM",
-        "signal_summary": "The remedy finding is adverse.",
-        "judgment_references": ["3"],
-        "relevance_to_ws": "This should be quarantined.",
-        "cross_reference_theme_ids": []
-    })
+    risk_case["judgment_signals"].append(_mapped_signal(
+        signal_id="JS03",
+        theme_id="T20_RISK_CONTROL",
+        theme_priority=20,
+        action="DO_NOT_USE",
+        case_effect="NON_TRANSFERABLE",
+        ws_presence="ABSENT",
+        confidence="MEDIUM",
+        ws_anchor="",
+        signal_source_reference="para 3",
+        signal_summary="The remedy finding is adverse.",
+        judgment_references=["3"],
+        relevance_to_ws="This should be quarantined.",
+    ))
     risk_case["outcome_optimization"]["signal_causal_weights"].append({
         "signal_id": "JS03",
         "causal_weight": "DECISIVE",
@@ -840,6 +940,28 @@ def test_outcome_merge_and_aggregation():
     assert risk_t20["recommendation"] == "RISK_CONTROL"
     assert risk_t20["total_positive_score"] == 0
     assert risk_aggregation["risk_control_summary"]["polkey_risk_cases"] == 1
+
+    out_scope_case = deepcopy(calibration)
+    out_scope_case["judgment_signals"].append(_mapped_signal(
+        signal_id="JS03",
+        theme_id="T20_RISK_CONTROL",
+        theme_priority=20,
+        action="REVIEW_MANUALLY",
+        case_effect="NEUTRAL_CONTEXT",
+        ws_presence="UNCLEAR",
+        scope_status="out_of_scope_claim_type",
+        t20_reason_code="T20_OUT_OF_SCOPE_CLAIM_TYPE",
+    ))
+    out_scope_case["outcome_optimization"]["signal_causal_weights"].append({
+        "signal_id": "JS03",
+        "causal_weight": "DECISIVE",
+        "causal_weight_reason": "The out-of-scope issue is tracked but not scored for unfair dismissal."
+    })
+    out_scope_aggregation = aggregate_outcome_optimized_cases([out_scope_case], dictionary)
+    out_scope_t20 = next(row for row in out_scope_aggregation["theme_strength_matrix"] if row["theme_id"] == "T20_RISK_CONTROL")
+    assert out_scope_t20["total_positive_score"] == 0
+    assert out_scope_aggregation["risk_control_summary"]["out_of_scope_signal_count"] == 1
+    assert out_scope_aggregation["signal_causal_weight_distribution"]["DECISIVE"] == 1
 
     invalid = _valid_outcome_calibration()
     invalid["outcome_optimization"]["signal_causal_weights"] = invalid["outcome_optimization"]["signal_causal_weights"][:1]
@@ -864,22 +986,12 @@ def test_outcome_merge_and_aggregation():
 
 def test_ws_baseline_validation_rules():
     """Test calibration validation enforces WS tagging baseline coupling."""
-    dict_path = Path("/home/hello/Projects/Calibrator/input/dictionary/WS_Controlled_Theme_Dictionary_v1_2_final.json")
-    dictionary = load_dictionary(dict_path)
+    dictionary = _load_test_dictionary()
     calibration = {
         "case_metadata": {"case_name": "Test Case"},
         "case_relevance_to_ws": {},
         "judgment_signals": [
-            {
-                "signal_id": "SIG_001",
-                "mapped_theme_id": "T01_ROLE_EVOLUTION",
-                "theme_priority": 3,
-                "recommended_action": "REINFORCE",
-                "case_effect": "WIN_DRIVER",
-                "ws_presence": "PRESENT",
-                "dictionary_match_confidence": "HIGH",
-                "cross_reference_theme_ids": []
-            }
+            _mapped_signal()
         ],
         "quality_control": {
             "ws_rewrite_performed": False,
@@ -1007,6 +1119,7 @@ def test_theme_store_builds_batch_review_outputs():
 
 if __name__ == "__main__":
     test_dictionary()
+    test_validate_dictionary_rejects_bad_substantive_alias()
     test_compact_dictionary_for_llm()
     test_fake_calibration()
     test_invalid_theme_id()

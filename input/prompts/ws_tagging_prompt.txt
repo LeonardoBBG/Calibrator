@@ -38,7 +38,7 @@ The controlled taxonomy of allowed WS themes.
 CORE INSTRUCTIONS
 
 - Use only WS_TEXT and WS_THEME_DICTIONARY_JSON.
-- Use only theme_id, theme_name, theme_priority, and permitted_actions from WS_THEME_DICTIONARY_JSON.
+- Use only the supplied fields in WS_THEME_DICTIONARY_JSON, including dictionary_metadata, theme_id, theme_name, theme_priority, theme_status, definition, include_when, exclude_when, duplication_guardrail, pre_check_required, permitted_actions, preferred_ws_destination, evidence_anchor_types, and t20_reason_codes where present.
 - Do not invent new theme_ids.
 - Do not invent new theme_names.
 - Do not rename, merge, split, or reorder dictionary themes.

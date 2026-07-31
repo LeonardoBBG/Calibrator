@@ -6,10 +6,16 @@ INPUTS
 - WS_THEME_DICTIONARY_JSON: The controlled taxonomy of WS themes.
 - WS_TAGGING_SUMMARY_JSON: Compact baseline showing how the fixed WS maps to the controlled taxonomy.
 
+WS_THEME_DICTIONARY_JSON is the active v1.3.3 dictionary contract. It may include dictionary_metadata, action_glossary, aliases, mapping_output_schema, global_mapping_rules, quality_control, and ws_theme_dictionary. You must obey mapping_output_schema where present.
+
 CORE TASK
 Extract material signals from PDF_TEXT, map each signal to exactly one primary theme from WS_THEME_DICTIONARY_JSON, and output a JSON object describing how the judgment can support, qualify, or quarantine elements of the WS.
 
 You will not invent themes. You will not rewrite the WS. You will not create new allegations. You will not cite external legal authorities.
+
+Compatibility rule: for each judgment signal, output both the v1.3.3 schema field names and the legacy pipeline aliases:
+- primary_theme_id and mapped_theme_id must be identical.
+- action and recommended_action must be identical.
 
 WS_TAGGING_SUMMARY_JSON is the baseline for WS theme presence. Do not re-derive WS theme presence from scratch unless the baseline is internally inconsistent with WS_TEXT. If you depart from the baseline, set dictionary_match_confidence to LOW and explain the issue in relevance_to_ws and quality_control.notes.
 
@@ -36,6 +42,7 @@ Coverage discipline:
 - Extract at least one signal per substantive theme cluster present in the judgment: procedural conduct, evidential adequacy, appeal handling, remedy considerations, and any non-transferable factual findings.
 - If the judgment contains a Tribunal finding that is favourable to the claimant in the underlying case AND has a structural parallel in the WS, you must extract a signal for it.
 - If the judgment contains a Tribunal finding that is unfavourable or non-transferable, you must extract a signal for it and quarantine it correctly. Do not silently omit unfavourable findings.
+- If a judgment signal concerns unlawful deduction from wages, working time regulations, breach of contract for unpaid sums, or another claim head outside unfair dismissal, extract it only as an out-of-scope control signal: scope_status="out_of_scope_claim_type", primary_theme_id/mapped_theme_id="T20_RISK_CONTROL", action/recommended_action="REVIEW_MANUALLY", and t20_reason_code="T20_OUT_OF_SCOPE_CLAIM_TYPE". These signals are for audit and filtering, not unfair-dismissal theme scoring.
 
 Before finalising the signal list, run this self-check:
 1. Have I covered every section of the judgment that contains a Tribunal finding?
@@ -64,7 +71,7 @@ For each signal:
 
 3.5 Read the chosen theme's `duplication_guardrail` field. If the guardrail names another theme as a competing match, verify that the chosen theme is the correct one rather than the competitor.
 
-3.6 Set `mapped_theme_id` to the theme_id of the chosen theme.
+3.6 Set `primary_theme_id` to the theme_id of the chosen theme. Also set `mapped_theme_id` to the same value for legacy pipeline compatibility.
 
 3.7 Check WS_TAGGING_SUMMARY_JSON for the chosen mapped_theme_id:
     - theme_presence_by_id gives the authoritative WS baseline status.
@@ -115,7 +122,7 @@ STEP 6 — SELECT recommended_action
 
 6.1 Read the `permitted_actions` array of the matched dictionary entry.
 
-6.2 Choose recommended_action only from that array. If you would like to recommend an action not in the array, the mapping is wrong — return to step 3.
+6.2 Choose action only from that array. Set both `action` and `recommended_action` to that same value. If you would like to recommend an action not in the array, the mapping is wrong — return to step 3.
 
 6.3 Apply the case_effect / action coupling rule:
     - If case_effect is WIN_DRIVER and ws_presence is PRESENT: REINFORCE is the default.
@@ -172,33 +179,68 @@ STEP 8 — POPULATE cross_reference_theme_ids
 8.5 Cross-references are for secondary relevance only. They do not generate independent action items.
 
 ================================================================
-STEP 9 — REQUIRED FIELDS FOR EACH SIGNAL
+STEP 9 — POPULATE v1.3.3 TRACEABILITY FIELDS
+================================================================
+
+Every signal must satisfy the active dictionary's mapping_output_schema.
+
+9.1 signal_verbatim: quote the judgment signal verbatim from PDF_TEXT. Keep it as short as possible while preserving the exact finding. Do not paraphrase in this field.
+
+9.2 signal_source_reference: give the paragraph, section, or page reference from the judgment.
+
+9.3 scope_status:
+- Use "in_scope" for unfair-dismissal signals mapped to T01–T19 or to T20 as an in-scope quarantine/default.
+- Use "out_of_scope_claim_type" only for non-unfair-dismissal claim heads, and only with T20_RISK_CONTROL and t20_reason_code="T20_OUT_OF_SCOPE_CLAIM_TYPE".
+
+9.4 ws_anchor: identify the existing WS proposition, paragraph, section, or dictionary evidence_anchor_type the mapping attaches to. Required unless action is DO_NOT_USE.
+
+9.5 no_external_judgment_facts_imported: must be true. If you cannot truthfully set it to true, map to T20_RISK_CONTROL with t20_reason_code="T20_SPECULATIVE_INFERENCE" or "T20_NOT_TRACEABLE".
+
+9.6 rationale: one or two sentences explaining why this theme and action were chosen.
+
+9.7 pre_check_log: required whenever the chosen dictionary theme contains pre_check_required. Each entry must include theme_id or theme_id_alias and a one-line reason/exclusion_reason. For T20_RISK_CONTROL, either use the alias ALL_SUBSTANTIVE_THEMES_T01_TO_T19 with a reason or list each substantive T01–T19 theme considered and excluded.
+
+9.8 t20_reason_code: required whenever primary_theme_id/mapped_theme_id is T20_RISK_CONTROL. Use one of the codes listed in T20_RISK_CONTROL.t20_reason_codes.
+
+================================================================
+STEP 10 — REQUIRED FIELDS FOR EACH SIGNAL
 ================================================================
 
 Every signal entry must contain ALL of the following fields:
 
 - signal_id (string, sequential: JS01, JS02, ...)
+- signal_verbatim (string, verbatim quote from judgment)
+- signal_source_reference (string, paragraph/section/page reference)
+- scope_status ("in_scope" or "out_of_scope_claim_type")
+- primary_theme_id (string, valid theme_id from dictionary)
 - mapped_theme_id (string, valid theme_id from dictionary)
 - theme_priority (integer, copied from dictionary)
+- action (string, from permitted_actions)
 - recommended_action (string, from permitted_actions)
 - case_effect (string, from enum in step 5)
 - ws_presence (string, from enum in step 7)
 - dictionary_match_confidence (string, from enum in step 7)
+- ws_anchor (string, required unless action is DO_NOT_USE)
+- no_external_judgment_facts_imported (boolean, must be true)
+- rationale (string)
 - signal_summary (string, one to three sentences describing the Tribunal finding)
 - judgment_references (array of strings or integers, paragraph numbers from the judgment)
 - relevance_to_ws (string, one to three sentences explaining the analogical bridge to the WS)
 - cross_reference_theme_ids (array, may be empty)
+- pre_check_log (array, required for themes with pre_check_required; otherwise may be omitted or [])
+- t20_reason_code (string, required for T20_RISK_CONTROL only)
+- sensitivity_flags (array, optional; use "discrimination_implication" where relevant)
 
 If any required field is missing or unverifiable, do not output the signal. Add a note in quality_control.notes describing the gap.
 
 ================================================================
-STEP 10 — ORDER THE SIGNAL ARRAY
+STEP 11 — ORDER THE SIGNAL ARRAY
 ================================================================
 
 Order signals by theme_priority ascending. Where two signals share a theme_priority, order by case_effect strength: WIN_DRIVER first, then LOSS_DRIVER, POLKEY_RISK, CONTRIBUTION_RISK, NEUTRAL_CONTEXT, NON_TRANSFERABLE last.
 
 ================================================================
-STEP 11 — TOP-LEVEL OUTPUT SCHEMA
+STEP 12 — TOP-LEVEL OUTPUT SCHEMA
 ================================================================
 
 The output JSON must contain exactly these top-level keys, in this order:
@@ -221,7 +263,7 @@ case_relevance_to_ws required fields:
 - transferability_limits (array of one-sentence items).
 
 ================================================================
-STEP 12 — QUALITY CONTROL DISCIPLINE
+STEP 13 — QUALITY CONTROL DISCIPLINE
 ================================================================
 
 The quality_control block must contain only flags whose underlying check has actually been performed during this run. Do not invent flags. Do not assert a flag is true without performing the check.
@@ -233,22 +275,25 @@ Required quality_control flags (each must be set after performing the correspond
 - permitted_actions_only — set to true only after confirming every recommended_action is in the corresponding theme's permitted_actions array.
 - theme_priorities_match_dictionary — set to true only after confirming, for each signal, that theme_priority equals the integer in the dictionary entry's theme_priority field. If you cannot confirm this for any signal, set the flag to false and list the affected signal_ids in quality_control.notes.
 - cross_references_respect_guardrails — set to true only after confirming, for each cross-referenced theme, that the primary theme's duplication_guardrail does not exclude the combination. If any combination violates a guardrail, set the flag to false and list the affected signal_ids in quality_control.notes.
+- mapping_output_schema_followed — set to true only after confirming every signal includes the v1.3.3 traceability fields and required conditional fields.
+- out_of_scope_claim_types_filtered — set to true only after confirming any non-unfair-dismissal claim-head signal is routed to T20 with scope_status="out_of_scope_claim_type" and t20_reason_code="T20_OUT_OF_SCOPE_CLAIM_TYPE".
 
 quality_control.notes is an array of strings. Use it to record any check that could not be performed, any signal that required a non-default decision, and any departure from the prompt's defaults.
 
 ================================================================
-STEP 13 — VALIDATION BEFORE RETURNING
+STEP 14 — VALIDATION BEFORE RETURNING
 ================================================================
 
 Before returning the JSON, internally verify:
 
 1. Every mapped_theme_id exists in WS_THEME_DICTIONARY_JSON.
+1a. Every primary_theme_id exists and matches mapped_theme_id.
 2. Every theme_priority equals the integer in the corresponding dictionary entry's theme_priority field.
-3. Every recommended_action is in the corresponding theme's permitted_actions array.
+3. Every action/recommended_action pair is identical and is in the corresponding theme's permitted_actions array.
 4. Every case_effect is one of the six enum values.
 5. Every ws_presence is one of the four enum values.
 6. Every dictionary_match_confidence is one of the three enum values.
-7. Every signal contains all eleven required fields from step 9.
+7. Every signal contains all required fields from Step 10.
 8. cross_reference_theme_ids do not contain the mapped_theme_id.
 9. cross_reference_theme_ids respect the primary theme's duplication_guardrail.
 10. case_effect / recommended_action coupling rules from step 6.3 are satisfied or a reason is recorded.
@@ -256,9 +301,13 @@ Before returning the JSON, internally verify:
 12. No signal with a LATENT baseline uses REINFORCE unless relevance_to_ws explains why REVIEW_MANUALLY is not the safer default.
 13. No signal with an ABSENT baseline uses ws_presence=PRESENT.
 14. No signal with a RISK_ONLY baseline uses REINFORCE.
-15. Signals are ordered as specified in step 10.
-16. Top-level keys are exactly as specified in step 11.
+15. Signals are ordered as specified in Step 11.
+16. Top-level keys are exactly as specified in Step 12.
 17. quality_control flags reflect actually-performed checks.
+18. no_external_judgment_facts_imported is true for every signal.
+19. pre_check_log is present for every theme with pre_check_required and T20 pre_check_log covers all substantive themes via alias or explicit entries.
+20. Every T20 signal has a valid t20_reason_code.
+21. out_of_scope_claim_type appears only with T20_RISK_CONTROL and T20_OUT_OF_SCOPE_CLAIM_TYPE.
 
 If any check fails, fix the underlying signal or record the failure in quality_control.notes before returning.
 

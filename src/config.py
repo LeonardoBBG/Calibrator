@@ -92,7 +92,7 @@ class Config:
             judgments_dir=project_root / "input" / "judgments",
             judgment_index_path=project_root / "input" / "judgments" / "moltie_judgment_index.csv",
             run_mode="debug",
-            dictionary_path=project_root / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_2_final.json",
+            dictionary_path=project_root / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_3_3.json",
             ws_tagging_prompt_path=project_root / "input" / "prompts" / "ws_tagging_prompt.txt",
             run_ws=True,
             reuse_existing_ws_tagging=True,

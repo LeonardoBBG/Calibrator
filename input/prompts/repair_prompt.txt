@@ -21,9 +21,16 @@ Do not introduce repairs to signals that were not flagged. Do not modify fields 
 DICTIONARY-BACKED FIXES
 
 - Do not create new themes. Use only theme_ids that exist in WS_THEME_DICTIONARY_JSON.
+- primary_theme_id and mapped_theme_id must both be present and identical.
 - Copy theme_priority directly from the integer value of the `theme_priority` field of the matched dictionary entry. Do not derive theme_priority from the position of the theme in `risk_rule`, from the numeric portion of theme_id, or from any other location.
-- recommended_action must be one of the permitted_actions for the mapped theme. Read permitted_actions from the dictionary entry.
+- action and recommended_action must both be present, identical, and one of the permitted_actions for the mapped theme. Read permitted_actions from the dictionary entry.
 - cross_reference_theme_ids must contain only valid theme_ids from the dictionary, must not include the mapped_theme_id, and must respect the primary theme's duplication_guardrail field.
+- signal_verbatim, signal_source_reference, scope_status, no_external_judgment_facts_imported, and rationale must be present for every signal.
+- ws_anchor must be present unless action is DO_NOT_USE.
+- no_external_judgment_facts_imported must be true. If the signal cannot truthfully make that assertion, remap it to T20_RISK_CONTROL with t20_reason_code T20_SPECULATIVE_INFERENCE or T20_NOT_TRACEABLE.
+- pre_check_log must be present when the chosen dictionary theme contains pre_check_required. For T20_RISK_CONTROL, pre_check_log must cover ALL_SUBSTANTIVE_THEMES_T01_TO_T19 via the alias or explicit theme_id entries.
+- t20_reason_code must be present for every T20_RISK_CONTROL mapping and must be drawn from T20_RISK_CONTROL.t20_reason_codes.
+- scope_status must be "in_scope" for T01-T19. scope_status="out_of_scope_claim_type" is permitted only with T20_RISK_CONTROL and t20_reason_code T20_OUT_OF_SCOPE_CLAIM_TYPE.
 
 ENUM COMPLIANCE
 
@@ -47,6 +54,17 @@ Apply the WS_TAGGING_SUMMARY_JSON coupling rules to every signal touched by the 
 - If the mapped theme baseline is RISK_ONLY: treat the signal as quarantine or review material. ws_presence must not be PRESENT, and recommended_action must not be reinforcement-type.
 - If the mapped theme baseline is PRESENT: no additional baseline constraint applies; the dictionary's permitted_actions and the case_effect / action coupling govern the action choice.
 
+OUT-OF-SCOPE CLAIM HEADS
+
+If a validation error concerns a signal about unlawful deduction from wages, working time regulations, breach of contract for unpaid sums, or another non-unfair-dismissal claim head, repair it to:
+- primary_theme_id and mapped_theme_id: T20_RISK_CONTROL
+- scope_status: out_of_scope_claim_type
+- t20_reason_code: T20_OUT_OF_SCOPE_CLAIM_TYPE
+- action and recommended_action: REVIEW_MANUALLY
+- no_external_judgment_facts_imported: true
+
+Do not force out-of-scope claim-head material into T01-T19.
+
 UNFIXABLE ERRORS
 
 If a validation error cannot be unambiguously fixed from the available context — for example, if mapped_theme_id refers to a theme that does not exist in the dictionary and the correct replacement cannot be determined from the signal's surrounding fields — apply the safe-default rule:
@@ -67,10 +85,12 @@ Set each quality_control flag only after performing the corresponding check on t
 
 Specifically:
 - Re-verify that every mapped_theme_id and cross-referenced theme_id exists in the dictionary.
+- Re-verify that every primary_theme_id matches mapped_theme_id.
 - Re-verify that every theme_priority equals the integer in the corresponding dictionary entry.
-- Re-verify that every recommended_action is in the corresponding theme's permitted_actions array.
+- Re-verify that every action/recommended_action pair is identical and in the corresponding theme's permitted_actions array.
 - Re-verify that every case_effect, ws_presence, and dictionary_match_confidence value is in the correct enum.
 - Re-verify that every signal complies with the WS baseline coupling rules above.
+- Re-verify every v1.3.3 mapping_output_schema field and conditional field.
 
 If the repair could not resolve all validation errors (because some were flagged as unfixable per the safe-default rule), set manual_review_required to true and list the unresolved signal_ids in quality_control.notes.
 

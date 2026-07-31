@@ -5,7 +5,7 @@ Generates a case-specific WS Theme Dictionary from the FATE handoff
 (ws_narrative + x_tests) and optionally a manually written WS text.
 
 CRITICAL RULE: This module NEVER reads, modifies, or overwrites the hardened
-WS_Controlled_Theme_Dictionary_v1_2_final.json.  All output is always written
+controlled theme dictionary. All output is always written
 to a NEW timestamped file in the caller-specified output directory.
 
 Two-pass design:
@@ -505,7 +505,7 @@ def theme_dict_from_handoff(
 
     Returns:
         Dict with "dictionary_metadata" and "ws_theme_dictionary" keys,
-        matching the schema of WS_Controlled_Theme_Dictionary_v1_2_final.json.
+        matching the schema of the hardened controlled dictionary.
 
     CRITICAL: The hardened dict is NEVER read, modified, or overwritten.
     This function always produces a NEW draft dict.
@@ -577,7 +577,7 @@ def theme_dict_from_handoff(
             "removed_by_cap_pass": n_removed,
             "WARNING": (
                 "This is an automatically generated draft. "
-                "WS_Controlled_Theme_Dictionary_v1_2_final.json has NOT been modified."
+                "The hardened controlled dictionary has NOT been modified."
             ),
         },
         "ws_theme_dictionary": themes,

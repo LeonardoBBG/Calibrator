@@ -47,7 +47,7 @@ DEFAULT_PROMPTS_DIR = Path(
 DEFAULT_DICTIONARY_PATH = Path(
     os.getenv(
         "CALIBRATOR_DICTIONARY_PATH",
-        str(CODE_ROOT / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_2_final.json"),
+        str(CODE_ROOT / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_3_3.json"),
     )
 ).expanduser().resolve()
 DEFAULT_RESULT_MODEL_NAME = "gpt-5.5"
@@ -2179,7 +2179,7 @@ def render_ws_strategy_tab() -> None:
         st.info("No processed cases found. Run a batch to generate cross-case WS intelligence.")
         return
 
-    dict_path = PROJECT_ROOT / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_2_final.json"
+    dict_path = PROJECT_ROOT / "input" / "dictionary" / "WS_Controlled_Theme_Dictionary_v1_3_3.json"
     if not dict_path.exists():
         st.error(f"Dictionary not found at {dict_path}")
         return

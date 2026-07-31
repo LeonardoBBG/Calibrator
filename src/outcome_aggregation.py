@@ -72,6 +72,12 @@ def aggregate_outcome_optimized_cases(
         case_name = case_metadata.get("case_name", "Unknown")
         case_number = case_metadata.get("case_number")
         outcome = case.get("outcome_optimization", {})
+        signals = case.get("judgment_signals", [])
+        out_of_scope_signal_ids = {
+            signal.get("signal_id")
+            for signal in signals
+            if signal.get("scope_status") == "out_of_scope_claim_type"
+        }
         signal_weights = {
             item.get("signal_id"): item.get("causal_weight")
             for item in outcome.get("signal_causal_weights", [])
@@ -88,7 +94,9 @@ def aggregate_outcome_optimized_cases(
 
         factual_distribution[factual_proximity] += 1
         transferability_distribution[transferability] += 1
-        for causal_weight in signal_weights.values():
+        for signal_id, causal_weight in signal_weights.items():
+            if signal_id in out_of_scope_signal_ids:
+                continue
             causal_weight_distribution[causal_weight] += 1
 
         remedy_strength = compute_remedy_outcome_strength(
@@ -128,7 +136,11 @@ def aggregate_outcome_optimized_cases(
 
         seen_themes_in_case = set()
         high_confidence_themes_in_case = set()
-        for signal in case.get("judgment_signals", []):
+        for signal in signals:
+            if signal.get("scope_status") == "out_of_scope_claim_type":
+                risk_control_summary["out_of_scope_signal_count"] += 1
+                risk_control_summary["out_of_scope_cases"].add(case_name)
+                continue
             theme_id = signal.get("mapped_theme_id")
             if theme_id not in theme_rows:
                 continue
@@ -377,11 +389,13 @@ def _overall_use_mode(liability_usefulness_score, remedy_strength, negative_pena
 def _initial_risk_control_summary():
     return {
         "risk_control_cases": set(),
+        "out_of_scope_cases": set(),
         "polkey_risk_cases": set(),
         "contribution_risk_cases": set(),
         "low_remedy_win_cases": set(),
         "negative_pattern_counts": Counter(),
         "risk_control_signal_count": 0,
+        "out_of_scope_signal_count": 0,
     }
 
 
@@ -410,6 +424,8 @@ def _finalize_risk_control_summary(summary):
         "contribution_risk_cases": len(summary["contribution_risk_cases"]),
         "low_remedy_win_cases": len(summary["low_remedy_win_cases"]),
         "risk_control_signal_count": summary["risk_control_signal_count"],
+        "out_of_scope_case_count": len(summary["out_of_scope_cases"]),
+        "out_of_scope_signal_count": summary["out_of_scope_signal_count"],
         "negative_pattern_counts": dict(summary["negative_pattern_counts"]),
         "recommended_use": "QUARANTINE" if summary["risk_control_cases"] else "NO_RISK_CONTROL_SIGNAL",
     }

@@ -17,11 +17,21 @@ def run_ws_tagging(
     response = llm_client.complete_json(tagging_prompt, payload)
     return response
 
-def build_ws_tagging_summary(ws_tagging: Dict) -> Dict:
+def _dictionary_metadata_for_summary(dictionary: Dict) -> Dict:
+    metadata = (dictionary or {}).get("dictionary_metadata", {})
+    return {
+        "dictionary_name": metadata.get("dictionary_name"),
+        "version": metadata.get("version"),
+        "payload_sha256": metadata.get("payload_sha256"),
+    }
+
+
+def build_ws_tagging_summary(ws_tagging: Dict, dictionary: Dict = None) -> Dict:
     """Build compact WS baseline for repeated judgment calibration calls."""
     reinforcement_actions = {"REINFORCE", "ADD FACT", "ADD EVIDENCE ANCHOR"}
     rationale_presence = {"LATENT", "ABSENT", "RISK_ONLY"}
     summary = {
+        "dictionary_metadata": _dictionary_metadata_for_summary(dictionary or ws_tagging),
         "theme_presence_by_id": {},
         "recommended_action_by_id": {},
         "cross_reference_theme_ids_by_id": {},

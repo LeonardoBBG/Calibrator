@@ -16,6 +16,8 @@ Repair only the fields needed to resolve VALIDATION_ERRORS and direct cascade de
 Do not rewrite case_metadata, case_relevance_to_ws, judgment_signals, or any existing File 2 calibration field.
 Do not create new themes, new facts, new allegations, WS text, or legal submissions.
 
+Signals with scope_status="out_of_scope_claim_type" are non-unfair-dismissal audit controls. Keep their signal_causal_weights entries for completeness, but do not repair them into positive unfair-dismissal usefulness unless the judgment expressly connects that claim head to the unfair-dismissal reasoning.
+
 CRITICAL RULES
 - outcome_optimization must contain every required field.
 - signal_causal_weights must contain exactly one entry for every judgment_signals[].signal_id.

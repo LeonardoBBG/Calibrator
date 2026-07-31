@@ -1,7 +1,7 @@
 You are compressing a validated calibration JSON into a non-duplicative WS reinforcement plan.
 
 INPUTS
-- VALIDATED_CALIBRATION_JSON: The validated calibration output produced by the prior calibration step. Each entry in `judgment_signals` contains a signal_id, a mapped_theme_id, a theme_priority, a recommended_action, a case_effect, and supporting fields.
+- VALIDATED_CALIBRATION_JSON: The validated calibration output produced by the prior calibration step. Each entry in `judgment_signals` contains a signal_id, primary_theme_id/mapped_theme_id, action/recommended_action, scope_status, a theme_priority, a case_effect, and supporting traceability fields.
 - WS_THEME_DICTIONARY_JSON: The controlled taxonomy of WS themes. This is the authoritative source for theme_priority, permitted_actions, and duplication_guardrail.
 
 CORE TASK
@@ -13,11 +13,13 @@ You are operating one layer above the calibration. Where the calibration may con
 STEP 1 — VERIFY INPUTS
 ================================================================
 
-1.1 Confirm every signal in VALIDATED_CALIBRATION_JSON has a signal_id, mapped_theme_id, and recommended_action. If any are missing, list them in quality_control.notes.
+1.1 Confirm every signal in VALIDATED_CALIBRATION_JSON has a signal_id, primary_theme_id, mapped_theme_id, action, and recommended_action. If any are missing, list them in quality_control.notes.
 
 1.2 Confirm every mapped_theme_id in the calibration exists in WS_THEME_DICTIONARY_JSON. If any do not, refuse to absorb that signal and quarantine it in quality_control.notes.
 
-1.3 Build an internal map: signal_id → (mapped_theme_id, case_effect, recommended_action). You will use this to preserve traceability throughout.
+1.3 Confirm primary_theme_id equals mapped_theme_id and action equals recommended_action for every signal.
+
+1.4 Build an internal map: signal_id → (mapped_theme_id, scope_status, case_effect, recommended_action, t20_reason_code). You will use this to preserve traceability throughout.
 
 ================================================================
 STEP 2 — IDENTIFY COMPRESSION CANDIDATES
@@ -25,13 +27,15 @@ STEP 2 — IDENTIFY COMPRESSION CANDIDATES
 
 Two signals are compression candidates if and only if all of the following are true:
 
-2.1 They share the same primary mapped_theme_id, OR they map to themes that the dictionary's `non_duplication_controls` section identifies as covering the same WS section.
+2.1 They share the same primary mapped_theme_id, OR their dictionary entries' preferred_ws_destination and duplication_guardrail fields show they cover the same WS section without crossing a forbidden theme boundary.
 
 2.2 They would reinforce the same WS destination (i.e., their `relevance_to_ws` text or `ws_destination_guidance` would target the same paragraph cluster of the WS).
 
 2.3 Their case_effects are compatible under Step 4.
 
 If signals share a theme but target distinct WS destinations (e.g., one for the disciplinary stage, one for the appeal stage), they are NOT compression candidates and must be kept in separate clusters.
+
+Out-of-scope claim-head signals (scope_status="out_of_scope_claim_type") are never compression candidates for substantive unfair-dismissal clusters. They must remain in risk_control_clusters and must not contribute to reinforcement_clusters or manual_review_clusters.
 
 ================================================================
 STEP 3 — DEFAULT TO 1:1 MAPPING
@@ -120,7 +124,7 @@ Each cluster belongs in exactly one of three top-level buckets:
 
 8.2 `manual_review_clusters` — clusters where cluster_action is REVIEW_MANUALLY or SOFTEN. These require human judgment before any WS modification.
 
-8.3 `risk_control_clusters` — clusters whose primary_theme_id is T20_RISK_CONTROL, or whose case_effect is NON_TRANSFERABLE. These are quarantine clusters.
+8.3 `risk_control_clusters` — clusters whose primary_theme_id is T20_RISK_CONTROL, whose case_effect is NON_TRANSFERABLE, or whose scope_status is out_of_scope_claim_type. These are quarantine clusters.
 
 ================================================================
 STEP 9 — DRAFT HUMAN_REVIEW_INSTRUCTIONS
@@ -209,6 +213,8 @@ Each cluster must contain ALL of:
 - ws_presence (string, from enum)
 - dictionary_match_confidence (string, from enum)
 - cross_reference_theme_ids (array, may be empty)
+- scope_status (string, inherited from the absorbed signal when all absorbed signals share the same scope_status; otherwise use "in_scope" and explain in quality_control.notes)
+- t20_reason_code (string, required for T20_RISK_CONTROL clusters)
 - judgment_references (array of paragraph numbers from absorbed signals, deduplicated)
 - compressed_signal_summary (string, two to four sentences)
 - ws_destination_guidance (array of WS section names)
@@ -218,6 +224,7 @@ Each cluster must contain ALL of:
 
 Risk-control clusters must additionally contain:
 - do_not_use_signal_ids_for_ws_reinforcement (array of signal_ids that must not be used at all)
+- out_of_scope_signal_ids (array of signal_ids with scope_status="out_of_scope_claim_type"; empty if none)
 
 ================================================================
 STEP 13 — QUALITY CONTROL DISCIPLINE
@@ -228,6 +235,10 @@ The quality_control block must contain only flags whose underlying check has act
 Required quality_control flags (each must be set after performing the corresponding check):
 
 - valid_dictionary_theme_ids_only — set to true only after confirming every primary_theme_id and every cross-referenced theme_id exists in WS_THEME_DICTIONARY_JSON.
+
+- mapping_schema_aliases_consistent — set to true only after confirming every absorbed signal has primary_theme_id=mapped_theme_id and action=recommended_action.
+
+- out_of_scope_signals_quarantined — set to true only after confirming every signal with scope_status="out_of_scope_claim_type" is in risk_control_clusters only and has t20_reason_code T20_OUT_OF_SCOPE_CLAIM_TYPE.
 
 - theme_priorities_match_dictionary — set to true only after confirming, for each cluster, that theme_priority equals the integer in the dictionary entry's theme_priority field. If you used a dictionary value that differed from the absorbed signal's value, the flag is still true (the discrepancy is recorded in notes), because the dictionary is authoritative.
 
@@ -264,6 +275,7 @@ STEP 14 — VALIDATION BEFORE RETURNING
 Before returning the JSON, internally verify:
 
 1. Every primary_theme_id and cross-referenced theme_id exists in WS_THEME_DICTIONARY_JSON.
+1a. Every absorbed signal's primary_theme_id/mapped_theme_id and action/recommended_action aliases are consistent.
 2. Every theme_priority equals the integer in the dictionary entry's theme_priority field.
 3. Every cluster_action is in the corresponding theme's permitted_actions array.
 4. Every case_effect is one of the six enum values. No compound values exist.
@@ -276,6 +288,7 @@ Before returning the JSON, internally verify:
 11. Top-level keys are exactly as specified in Step 12.
 12. quality_control flags reflect actually-performed checks, with no false positives.
 13. Each cluster has no_ws_text_drafted: true and new_facts_created: false.
+14. Out-of-scope claim-head signals are quarantined and not used for unfair-dismissal reinforcement.
 
 If any check fails, fix the underlying cluster or record the failure in quality_control.notes before returning.
 

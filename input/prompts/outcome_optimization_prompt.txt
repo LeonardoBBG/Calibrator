@@ -17,6 +17,8 @@ Do not create new themes, new facts, new allegations, WS text, or legal submissi
 
 The LLM must output categorical and explanatory fields only. Do not output numeric composite scores.
 
+Signals with scope_status="out_of_scope_claim_type" are audit controls for non-unfair-dismissal claim heads. They must receive a signal_causal_weights entry for schema completeness, but they must not be treated as supporting unfair-dismissal transferability or claimant usefulness. Use causal_weight NEUTRAL or UNKNOWN unless the judgment expressly makes the out-of-scope issue relevant to the unfair-dismissal reasoning.
+
 FORBIDDEN FIELDS
 Do not include any of these fields anywhere in outcome_optimization:
 - authority_level
