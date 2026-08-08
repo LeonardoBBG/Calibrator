@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sol-fable"
+version = "0.3.0"
+description = "Auditable ET1, ET3 and witness-statement argument calibration MVP"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.7,<3",
+  "PyYAML>=6,<7",
+  "python-docx>=1.1,<2",
+  "pypdf>=5,<7",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.38,<2"]
+dev = ["pytest>=8,<9"]
+api = [
+  "openai>=2.40,<3",
+  "anthropic>=0.110,<1",
+]
+llm = [
+  "ollama>=0.5,<0.6",
+  "openai>=2.40,<3",
+  "anthropic>=0.110,<1",
+]
+
+[project.scripts]
+sol-fable = "sol_fable.cli:main"
+sol-fable-ui = "sol_fable.streamlit_runner:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sol_fable = [
+  "resources/default_settings.yaml",
+  "resources/prompts/*.txt",
+]
+
+[tool.setuptools.data-files]
+"." = ["streamlit_app.py", "run_streamlit.sh"]
+"config" = ["config/settings.yaml"]
+"prompts" = ["prompts/*.txt"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"

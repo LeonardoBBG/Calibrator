@@ -2,7 +2,22 @@
   "permissions": {
     "allow": [
       "Bash(python3 -m pytest src/tests.py -x -q)",
-      "Bash(python3 -c \"import ast; ast.parse\\(open\\('/home/hello/Projects/Calibrator/streamlit_single_case_monitor.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")"
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('/home/hello/Projects/Calibrator/streamlit_single_case_monitor.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(kill -9 128205)",
+      "Bash(curl -s http://localhost:11434/api/ps)",
+      "Bash(python3 -m pytest -q)",
+      "Bash(python3 -m py_compile streamlit_app.py src/sol_fable/*.py src/sol_fable/agents/*.py)",
+      "Bash(python3 -c \"import selenium; print\\('selenium ok'\\)\")",
+      "Bash(pip list *)",
+      "Bash(pip install *)",
+      "Bash(python3 -c \"import playwright; print\\('installed'\\)\")",
+      "Bash(export SOL_FABLE_DATA_DIR=/tmp/claude-1000/-home-hello-Projects-Calibrator/cc00f10f-8d89-4536-a5ee-fcc86d0d727e/scratchpad/solfable_ui_test)",
+      "Bash(nohup streamlit run streamlit_app.py --server.headless true --server.port 8765)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(timeout 30 bash -c 'until curl -sf http://localhost:8765 >/dev/null; do sleep 1; done')",
+      "Bash(python3 drive_streamlit4.py)",
+      "Bash(pip show *)"
     ]
   }
 }

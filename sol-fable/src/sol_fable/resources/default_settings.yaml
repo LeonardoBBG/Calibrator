@@ -1,0 +1,31 @@
+parser_version: "0.1.0"
+prompt_version: "0.3.0"
+analysis_backend: "deterministic-v1"
+openai_model: "gpt-5.6-sol"
+anthropic_model: "claude-sonnet-5"
+n_rounds: 2
+claimant_barrister: "SOL"
+thresholds:
+  high_confidence: 0.85
+  medium_confidence: 0.65
+  human_review_below: 0.65
+  lexical_candidate_floor: 0.12
+  possible_new_case_below: 0.22
+ranking_weights:
+  outcome_materiality: 0.30
+  pleading_alignment: 0.15
+  ws_support: 0.10
+  respondent_attack_strength: 0.15
+  cross_examination_vulnerability: 0.15
+  case_law_calibration_value: 0.15
+paths:
+  case_dir: "case"
+ollama_host: "http://localhost:11434"
+ollama_model: "gemma3:27b"
+ollama_num_gpu: 999
+ollama_allow_remote_host: false
+llm_max_retries: 1
+llm_timeout_seconds: 180
+llm_max_output_tokens: 4096
+ollama_argument_cap: null
+live_argument_cap: 20

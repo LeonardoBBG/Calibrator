@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+*.py[cod]
+case/database/*.sqlite*
+case/source/et1/*
+case/source/et3/*
+case/source/ws/*
+case/extracted/*
+case/reports/*
+logs/*
+!case/**/.gitkeep
+!logs/.gitkeep

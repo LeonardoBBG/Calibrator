@@ -1,0 +1,50 @@
+{
+  "$defs": {
+    "DocumentType": {
+      "enum": [
+        "ET1",
+        "ET3",
+        "WS"
+      ],
+      "title": "DocumentType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "document_id": {
+      "title": "Document Id",
+      "type": "string"
+    },
+    "document_type": {
+      "$ref": "#/$defs/DocumentType"
+    },
+    "filename": {
+      "title": "Filename",
+      "type": "string"
+    },
+    "ingested_at": {
+      "title": "Ingested At",
+      "type": "string"
+    },
+    "parser_version": {
+      "title": "Parser Version",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    }
+  },
+  "required": [
+    "document_id",
+    "document_type",
+    "filename",
+    "sha256",
+    "ingested_at",
+    "parser_version"
+  ],
+  "title": "Document",
+  "type": "object"
+}

@@ -1,0 +1,1021 @@
+{
+  "$defs": {
+    "ArgumentCategory": {
+      "enum": [
+        "SUBSTANTIVE",
+        "PROCEDURAL",
+        "MIXED"
+      ],
+      "title": "ArgumentCategory",
+      "type": "string"
+    },
+    "ArgumentTreatment": {
+      "enum": [
+        "PROTECT",
+        "DEFEND",
+        "BOTH",
+        "SECONDARY",
+        "DISTRACTING",
+        "UNSUPPORTED"
+      ],
+      "title": "ArgumentTreatment",
+      "type": "string"
+    },
+    "BarristerPersona": {
+      "enum": [
+        "SOL",
+        "FABLE"
+      ],
+      "title": "BarristerPersona",
+      "type": "string"
+    },
+    "DebateSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "argument_id": {
+          "title": "Argument Id",
+          "type": "string"
+        },
+        "backend": {
+          "default": "deterministic-v1",
+          "title": "Backend",
+          "type": "string"
+        },
+        "claimant_barrister": {
+          "$ref": "#/$defs/BarristerPersona"
+        },
+        "claimant_strength": {
+          "default": "UNKNOWN",
+          "enum": [
+            "VERY_HIGH",
+            "HIGH",
+            "MEDIUM",
+            "LOW",
+            "MINIMAL",
+            "NONE",
+            "UNKNOWN"
+          ],
+          "title": "Claimant Strength",
+          "type": "string"
+        },
+        "evidence_gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Gaps",
+          "type": "array"
+        },
+        "evidence_links": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLink"
+          },
+          "title": "Evidence Links",
+          "type": "array"
+        },
+        "hidden_assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hidden Assumptions",
+          "type": "array"
+        },
+        "human_review_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Human Review Reasons",
+          "type": "array"
+        },
+        "methodological_agreements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Methodological Agreements",
+          "type": "array"
+        },
+        "n_rounds": {
+          "minimum": 1,
+          "title": "N Rounds",
+          "type": "integer"
+        },
+        "paragraph_citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paragraph Citations",
+          "type": "array"
+        },
+        "prompt_version": {
+          "default": "unknown",
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "recommended_treatment": {
+          "anyOf": [
+            {
+              "enum": [
+                "PROTECT",
+                "DEFEND",
+                "BOTH"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recommended Treatment"
+        },
+        "remaining_disputes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Remaining Disputes",
+          "type": "array"
+        },
+        "respondent_barrister": {
+          "$ref": "#/$defs/BarristerPersona"
+        },
+        "respondent_strength": {
+          "default": "UNKNOWN",
+          "enum": [
+            "VERY_HIGH",
+            "HIGH",
+            "MEDIUM",
+            "LOW",
+            "MINIMAL",
+            "NONE",
+            "UNKNOWN"
+          ],
+          "title": "Respondent Strength",
+          "type": "string"
+        },
+        "stop_reason": {
+          "title": "Stop Reason",
+          "type": "string"
+        },
+        "treatment_rationale": {
+          "default": "",
+          "title": "Treatment Rationale",
+          "type": "string"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/DebateTurn"
+          },
+          "title": "Turns",
+          "type": "array"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "argument_id",
+        "n_rounds",
+        "claimant_barrister",
+        "respondent_barrister",
+        "turns",
+        "methodological_agreements",
+        "remaining_disputes",
+        "hidden_assumptions",
+        "evidence_gaps",
+        "human_review_reasons",
+        "stop_reason"
+      ],
+      "title": "DebateSummary",
+      "type": "object"
+    },
+    "DebateTurn": {
+      "additionalProperties": false,
+      "properties": {
+        "argument_id": {
+          "title": "Argument Id",
+          "type": "string"
+        },
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "barrister": {
+          "$ref": "#/$defs/BarristerPersona"
+        },
+        "challenges_for_opponent": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Challenges For Opponent",
+          "type": "array"
+        },
+        "concessions_or_risks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Concessions Or Risks",
+          "type": "array"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Gaps",
+          "type": "array"
+        },
+        "evidence_links": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLink"
+          },
+          "title": "Evidence Links",
+          "type": "array"
+        },
+        "hidden_assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hidden Assumptions",
+          "type": "array"
+        },
+        "opponent_turn_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Opponent Turn Id"
+        },
+        "paragraph_citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paragraph Citations",
+          "type": "array"
+        },
+        "position": {
+          "title": "Position",
+          "type": "string"
+        },
+        "prompt_version": {
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "protect_or_defend_points": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Protect Or Defend Points",
+          "type": "array"
+        },
+        "responses_to_opponent": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Responses To Opponent",
+          "type": "array"
+        },
+        "round_number": {
+          "minimum": 1,
+          "title": "Round Number",
+          "type": "integer"
+        },
+        "side": {
+          "$ref": "#/$defs/PartySide"
+        },
+        "supporting_points": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Points",
+          "type": "array"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "turn_id",
+        "argument_id",
+        "round_number",
+        "barrister",
+        "side",
+        "position",
+        "supporting_points",
+        "responses_to_opponent",
+        "challenges_for_opponent",
+        "concessions_or_risks",
+        "hidden_assumptions",
+        "evidence_gaps",
+        "protect_or_defend_points",
+        "paragraph_citations",
+        "confidence",
+        "backend",
+        "prompt_version"
+      ],
+      "title": "DebateTurn",
+      "type": "object"
+    },
+    "EvidenceLink": {
+      "additionalProperties": false,
+      "description": "A substantive claim tied to the exact paragraphs said to support it.",
+      "properties": {
+        "claim": {
+          "minLength": 1,
+          "title": "Claim",
+          "type": "string"
+        },
+        "paragraph_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Paragraph Ids",
+          "type": "array"
+        },
+        "relationship": {
+          "default": "SUPPORTS",
+          "enum": [
+            "SUPPORTS",
+            "CONTRADICTS",
+            "CONTEXT"
+          ],
+          "title": "Relationship",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim",
+        "paragraph_ids"
+      ],
+      "title": "EvidenceLink",
+      "type": "object"
+    },
+    "FableAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "default": "FABLE",
+          "title": "Agent",
+          "type": "string"
+        },
+        "alternative_explanation": {
+          "title": "Alternative Explanation",
+          "type": "string"
+        },
+        "argument_id": {
+          "title": "Argument Id",
+          "type": "string"
+        },
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "cross_examination_risk": {
+          "title": "Cross Examination Risk",
+          "type": "string"
+        },
+        "damaging_concessions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Damaging Concessions",
+          "type": "array"
+        },
+        "defend_points": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Defend Points",
+          "type": "array"
+        },
+        "evidence_attack": {
+          "title": "Evidence Attack",
+          "type": "string"
+        },
+        "evidence_links": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLink"
+          },
+          "title": "Evidence Links",
+          "type": "array"
+        },
+        "hidden_assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hidden Assumptions",
+          "type": "array"
+        },
+        "paragraph_citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paragraph Citations",
+          "type": "array"
+        },
+        "pleading_attack": {
+          "title": "Pleading Attack",
+          "type": "string"
+        },
+        "prompt_version": {
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "respondent_case": {
+          "title": "Respondent Case",
+          "type": "string"
+        },
+        "risk_level": {
+          "title": "Risk Level",
+          "type": "string"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "argument_id",
+        "respondent_case",
+        "pleading_attack",
+        "evidence_attack",
+        "alternative_explanation",
+        "damaging_concessions",
+        "cross_examination_risk",
+        "defend_points",
+        "risk_level",
+        "hidden_assumptions",
+        "paragraph_citations",
+        "confidence",
+        "backend",
+        "prompt_version"
+      ],
+      "title": "FableAssessment",
+      "type": "object"
+    },
+    "Importance": {
+      "enum": [
+        "CRITICAL",
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ],
+      "title": "Importance",
+      "type": "string"
+    },
+    "LLMUsage": {
+      "additionalProperties": false,
+      "description": "Provider provenance without persisting credentials or unstable price data.",
+      "properties": {
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "observed_attempts": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Observed Attempts",
+          "type": "integer"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "request_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Request Ids",
+          "type": "array"
+        },
+        "requested_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requested Model"
+        },
+        "response_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Id"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tokens"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "title": "LLMUsage",
+      "type": "object"
+    },
+    "PartySide": {
+      "enum": [
+        "CLAIMANT",
+        "RESPONDENT"
+      ],
+      "title": "PartySide",
+      "type": "string"
+    },
+    "PleadingStatus": {
+      "enum": [
+        "PLEADED_ET1_EXPLICIT",
+        "PLEADED_ET1_IMPLICIT",
+        "ET1_DETAIL_OR_ELABORATION",
+        "RESPONDS_TO_ET3",
+        "ET3_ONLY_ALLEGATION",
+        "COMMON_GROUND",
+        "POTENTIALLY_NEW_CASE",
+        "NOT_MATERIAL_TO_PLEADINGS",
+        "UNRESOLVED"
+      ],
+      "title": "PleadingStatus",
+      "type": "string"
+    },
+    "RankingComponents": {
+      "additionalProperties": false,
+      "properties": {
+        "case_law_calibration_value": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Case Law Calibration Value",
+          "type": "number"
+        },
+        "cross_examination_vulnerability": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Cross Examination Vulnerability",
+          "type": "number"
+        },
+        "outcome_materiality": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Outcome Materiality",
+          "type": "number"
+        },
+        "pleading_alignment": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Pleading Alignment",
+          "type": "number"
+        },
+        "respondent_attack_strength": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Respondent Attack Strength",
+          "type": "number"
+        },
+        "ws_support": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Ws Support",
+          "type": "number"
+        }
+      },
+      "required": [
+        "outcome_materiality",
+        "pleading_alignment",
+        "ws_support",
+        "respondent_attack_strength",
+        "cross_examination_vulnerability",
+        "case_law_calibration_value"
+      ],
+      "title": "RankingComponents",
+      "type": "object"
+    },
+    "SolAssessment": {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "default": "SOL",
+          "title": "Agent",
+          "type": "string"
+        },
+        "argument_id": {
+          "title": "Argument Id",
+          "type": "string"
+        },
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "best_formulation": {
+          "title": "Best Formulation",
+          "type": "string"
+        },
+        "claimant_relevance": {
+          "title": "Claimant Relevance",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_links": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLink"
+          },
+          "title": "Evidence Links",
+          "type": "array"
+        },
+        "hidden_assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hidden Assumptions",
+          "type": "array"
+        },
+        "new_case_risk": {
+          "title": "New Case Risk",
+          "type": "string"
+        },
+        "paragraph_citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paragraph Citations",
+          "type": "array"
+        },
+        "pleading_basis": {
+          "title": "Pleading Basis",
+          "type": "string"
+        },
+        "prompt_version": {
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "protect_points": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Protect Points",
+          "type": "array"
+        },
+        "required_findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Findings",
+          "type": "array"
+        },
+        "risks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Risks",
+          "type": "array"
+        },
+        "strength": {
+          "title": "Strength",
+          "type": "string"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LLMUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "argument_id",
+        "best_formulation",
+        "pleading_basis",
+        "claimant_relevance",
+        "required_findings",
+        "hidden_assumptions",
+        "strength",
+        "new_case_risk",
+        "protect_points",
+        "risks",
+        "paragraph_citations",
+        "confidence",
+        "backend",
+        "prompt_version"
+      ],
+      "title": "SolAssessment",
+      "type": "object"
+    },
+    "SourceOrigin": {
+      "enum": [
+        "ET1",
+        "ET3",
+        "DOCUMENT_PLACEHOLDER",
+        "SELF_ACCOUNT",
+        "OTHER_WITNESS",
+        "AGREED_FACT",
+        "INFERENCE",
+        "LEGAL_SUBMISSION",
+        "OTHER",
+        "UNKNOWN"
+      ],
+      "title": "SourceOrigin",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "argument_id": {
+      "title": "Argument Id",
+      "type": "string"
+    },
+    "assessment_fingerprint": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assessment Fingerprint"
+    },
+    "assessment_mode": {
+      "anyOf": [
+        {
+          "enum": [
+            "LIVE",
+            "MIXED",
+            "DETERMINISTIC",
+            "DETERMINISTIC_FALLBACK"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assessment Mode"
+    },
+    "category": {
+      "$ref": "#/$defs/ArgumentCategory"
+    },
+    "debate_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DebateSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "document_placeholders": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Document Placeholders",
+      "type": "array"
+    },
+    "et1_paragraphs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Et1 Paragraphs",
+      "type": "array"
+    },
+    "et3_paragraphs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Et3 Paragraphs",
+      "type": "array"
+    },
+    "fable_assessment": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FableAssessment"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "human_review_status": {
+      "default": "PENDING",
+      "title": "Human Review Status",
+      "type": "string"
+    },
+    "importance": {
+      "$ref": "#/$defs/Importance"
+    },
+    "issue_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Issue Ids",
+      "type": "array"
+    },
+    "pleading_statuses": {
+      "items": {
+        "$ref": "#/$defs/PleadingStatus"
+      },
+      "title": "Pleading Statuses",
+      "type": "array"
+    },
+    "proposition": {
+      "title": "Proposition",
+      "type": "string"
+    },
+    "proposition_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Proposition Ids",
+      "type": "array"
+    },
+    "ranking_components": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RankingComponents"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ranking_score": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ranking Score"
+    },
+    "search_package": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Search Package"
+    },
+    "sol_assessment": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SolAssessment"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "source_types": {
+      "items": {
+        "$ref": "#/$defs/SourceOrigin"
+      },
+      "title": "Source Types",
+      "type": "array"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "treatment": {
+      "items": {
+        "$ref": "#/$defs/ArgumentTreatment"
+      },
+      "title": "Treatment",
+      "type": "array"
+    },
+    "ws_paragraphs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Ws Paragraphs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "argument_id",
+    "title",
+    "proposition",
+    "category",
+    "importance",
+    "issue_ids",
+    "ws_paragraphs",
+    "et1_paragraphs",
+    "et3_paragraphs",
+    "source_types",
+    "document_placeholders",
+    "pleading_statuses",
+    "proposition_ids"
+  ],
+  "title": "Argument",
+  "type": "object"
+}

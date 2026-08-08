@@ -1,0 +1,65 @@
+{
+  "$defs": {
+    "ArgumentCategory": {
+      "enum": [
+        "SUBSTANTIVE",
+        "PROCEDURAL",
+        "MIXED"
+      ],
+      "title": "ArgumentCategory",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "category": {
+      "$ref": "#/$defs/ArgumentCategory"
+    },
+    "claimant_position": {
+      "title": "Claimant Position",
+      "type": "string"
+    },
+    "et1_paragraphs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Et1 Paragraphs",
+      "type": "array"
+    },
+    "et3_paragraphs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Et3 Paragraphs",
+      "type": "array"
+    },
+    "issue_id": {
+      "title": "Issue Id",
+      "type": "string"
+    },
+    "respondent_position": {
+      "title": "Respondent Position",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "issue_id",
+    "title",
+    "claimant_position",
+    "respondent_position",
+    "et1_paragraphs",
+    "et3_paragraphs",
+    "category",
+    "status"
+  ],
+  "title": "Issue",
+  "type": "object"
+}

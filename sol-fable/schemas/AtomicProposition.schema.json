@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "EvidentialCharacter": {
+      "enum": [
+        "PERSONAL_RECOLLECTION",
+        "CONTEMPORANEOUS_DOCUMENT_PLACEHOLDER",
+        "LATER_DOCUMENT_PLACEHOLDER",
+        "ADMISSION",
+        "INFERENCE_FROM_FACTS",
+        "HEARSAY_ACCOUNT",
+        "LEGAL_CHARACTERISATION",
+        "UNSUPPORTED_ASSERTION",
+        "EVIDENCE_NOT_YET_INGESTED"
+      ],
+      "title": "EvidentialCharacter",
+      "type": "string"
+    },
+    "Importance": {
+      "enum": [
+        "CRITICAL",
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ],
+      "title": "Importance",
+      "type": "string"
+    },
+    "MatchType": {
+      "enum": [
+        "EXACT_REFERENCE",
+        "DIRECT_SEMANTIC",
+        "CONTEXTUAL",
+        "ISSUE_LEVEL",
+        "NO_MATCH",
+        "UNRESOLVED"
+      ],
+      "title": "MatchType",
+      "type": "string"
+    },
+    "ParagraphMatch": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "match_type": {
+          "$ref": "#/$defs/MatchType"
+        },
+        "paragraph_id": {
+          "title": "Paragraph Id",
+          "type": "string"
+        },
+        "respondent_position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RespondentPosition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "paragraph_id",
+        "match_type",
+        "confidence"
+      ],
+      "title": "ParagraphMatch",
+      "type": "object"
+    },
+    "PleadingStatus": {
+      "enum": [
+        "PLEADED_ET1_EXPLICIT",
+        "PLEADED_ET1_IMPLICIT",
+        "ET1_DETAIL_OR_ELABORATION",
+        "RESPONDS_TO_ET3",
+        "ET3_ONLY_ALLEGATION",
+        "COMMON_GROUND",
+        "POTENTIALLY_NEW_CASE",
+        "NOT_MATERIAL_TO_PLEADINGS",
+        "UNRESOLVED"
+      ],
+      "title": "PleadingStatus",
+      "type": "string"
+    },
+    "RespondentPosition": {
+      "enum": [
+        "ADMITTED",
+        "DENIED",
+        "NOT_ADMITTED",
+        "PARTLY_ADMITTED",
+        "ALTERNATIVE_ACCOUNT",
+        "NOT_ADDRESSED",
+        "RESPONDENT_ALLEGATION",
+        "UNCLEAR"
+      ],
+      "title": "RespondentPosition",
+      "type": "string"
+    },
+    "SourceOrigin": {
+      "enum": [
+        "ET1",
+        "ET3",
+        "DOCUMENT_PLACEHOLDER",
+        "SELF_ACCOUNT",
+        "OTHER_WITNESS",
+        "AGREED_FACT",
+        "INFERENCE",
+        "LEGAL_SUBMISSION",
+        "OTHER",
+        "UNKNOWN"
+      ],
+      "title": "SourceOrigin",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "et1_matches": {
+      "items": {
+        "$ref": "#/$defs/ParagraphMatch"
+      },
+      "title": "Et1 Matches",
+      "type": "array"
+    },
+    "et3_matches": {
+      "items": {
+        "$ref": "#/$defs/ParagraphMatch"
+      },
+      "title": "Et3 Matches",
+      "type": "array"
+    },
+    "evidential_character": {
+      "items": {
+        "$ref": "#/$defs/EvidentialCharacter"
+      },
+      "title": "Evidential Character",
+      "type": "array"
+    },
+    "materiality": {
+      "$ref": "#/$defs/Importance",
+      "default": "MEDIUM"
+    },
+    "pleading_status": {
+      "$ref": "#/$defs/PleadingStatus",
+      "default": "UNRESOLVED"
+    },
+    "proposition_id": {
+      "title": "Proposition Id",
+      "type": "string"
+    },
+    "requires_human_review": {
+      "default": false,
+      "title": "Requires Human Review",
+      "type": "boolean"
+    },
+    "review_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Review Reasons",
+      "type": "array"
+    },
+    "source_origins": {
+      "items": {
+        "$ref": "#/$defs/SourceOrigin"
+      },
+      "title": "Source Origins",
+      "type": "array"
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    },
+    "ws_paragraph_id": {
+      "title": "Ws Paragraph Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "proposition_id",
+    "ws_paragraph_id",
+    "text",
+    "source_origins",
+    "evidential_character"
+  ],
+  "title": "AtomicProposition",
+  "type": "object"
+}

@@ -1,0 +1,83 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "argument_id": {
+      "title": "Argument Id",
+      "type": "string"
+    },
+    "authority_queries": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Authority Queries",
+      "type": "array"
+    },
+    "broad_queries": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Broad Queries",
+      "type": "array"
+    },
+    "core_proposition": {
+      "title": "Core Proposition",
+      "type": "string"
+    },
+    "do_not_assume": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Do Not Assume",
+      "type": "array"
+    },
+    "factual_analogues": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Factual Analogues",
+      "type": "array"
+    },
+    "legal_dimensions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Legal Dimensions",
+      "type": "array"
+    },
+    "questions_for_cases": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Questions For Cases",
+      "type": "array"
+    },
+    "search_terms": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Search Terms",
+      "type": "array"
+    },
+    "targeted_queries": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Targeted Queries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "argument_id",
+    "core_proposition",
+    "legal_dimensions",
+    "factual_analogues",
+    "search_terms",
+    "broad_queries",
+    "targeted_queries",
+    "authority_queries",
+    "questions_for_cases",
+    "do_not_assume"
+  ],
+  "title": "CaseLawSearchPackage",
+  "type": "object"
+}
